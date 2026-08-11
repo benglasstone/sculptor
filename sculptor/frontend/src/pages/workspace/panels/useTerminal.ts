@@ -18,6 +18,8 @@ import { getColorScale, resolveGrayColor } from "~/common/theme/radixColorHexMap
 import { useResolvedTheme } from "~/common/Utils.ts";
 import { commandActionsAtom } from "~/components/CommandPalette/commandActions.ts";
 
+import { createFilePathLinkProvider } from "./terminalFileLinks.ts";
+
 // ESC character code (0x1B)
 const ESC = "\u001b";
 
@@ -340,6 +342,12 @@ type UseTerminalArgs = {
    * surface, so it must take keyboard focus immediately. Workspace terminals
    * leave it false so they don't steal focus from the chat input on load. */
   focusOnVisible?: boolean;
+  /** Opens a workspace file path ctrl/cmd-clicked in the terminal. Omit to
+   *  leave paths as plain text (the pre-existing behavior). */
+  onFilePathActivate?: (navPath: string) => void;
+  /** Absolute path of the workspace clone, used to reject paths outside it.
+   *  Only read when `onFilePathActivate` is set. */
+  workspaceCodePath?: string | null;
 };
 
 type UseTerminalResult = {
@@ -354,6 +362,8 @@ export const useTerminal = ({
   fontSize = 12,
   lineHeight = 1,
   focusOnVisible = false,
+  onFilePathActivate,
+  workspaceCodePath = null,
 }: UseTerminalArgs): UseTerminalResult => {
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -379,6 +389,19 @@ export const useTerminal = ({
   useEffect(() => {
     onConnectionStatusChangeRef.current = onConnectionStatusChange;
   });
+  // Same ref pattern as onOutput above: the link provider is registered once
+  // per xterm instance but must call the current callback when a link is
+  // clicked, without tearing down the terminal when the callback identity
+  // changes.
+  const onFilePathActivateRef = useRef(onFilePathActivate);
+  useEffect(() => {
+    onFilePathActivateRef.current = onFilePathActivate;
+  });
+  const workspaceCodePathRef = useRef(workspaceCodePath);
+  useEffect(() => {
+    workspaceCodePathRef.current = workspaceCodePath;
+  });
+
   const appTheme = useResolvedTheme();
   const grayColor = useThemeGrayColor();
   const accentColor = useThemeAccentColor();
@@ -462,6 +485,22 @@ export const useTerminal = ({
           }
         }),
       );
+
+      // Workspace file paths become ctrl/cmd-clickable, opening in Sculptor's
+      // viewer. Registered only when a handler is supplied so a terminal
+      // without one keeps plain-text paths.
+      if (onFilePathActivateRef.current) {
+        xterm.registerLinkProvider(
+          createFilePathLinkProvider({
+            terminal: xterm,
+            get workspaceCodePath() {
+              return workspaceCodePathRef.current;
+            },
+            onActivate: (navPath) => onFilePathActivateRef.current?.(navPath),
+            hintContainer: container,
+          }),
+        );
+      }
 
       xterm.open(container);
       fitAddon.fit();

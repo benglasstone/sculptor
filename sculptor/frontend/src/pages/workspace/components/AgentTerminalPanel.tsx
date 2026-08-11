@@ -1,6 +1,11 @@
+import { useSetAtom } from "jotai";
 import type { ReactElement } from "react";
+import { useCallback } from "react";
 
 import { ElementIds } from "~/api";
+import { useTaskWorkspaceId } from "~/common/state/hooks/useTaskHelpers.ts";
+import { openFileViewTabAtom } from "~/pages/workspace/components/diffPanel/atoms.ts";
+import { useWorkspaceCodePath } from "~/pages/workspace/hooks/useWorkspaceCodePath.ts";
 
 import { useTerminal } from "../panels/useTerminal";
 import styles from "./AgentTerminalPanel.module.scss";
@@ -21,11 +26,27 @@ type AgentTerminalPanelProps = {
  */
 export const AgentTerminalPanel = ({ taskId }: AgentTerminalPanelProps): ReactElement => {
   useTerminalChatActions(taskId);
+  // For a terminal agent this pane IS the conversation, so a file path the
+  // agent prints here is the only place it can be clicked. Ctrl/cmd-click
+  // opens it in the file viewer, matching the chat surface's path links.
+  const workspaceId = useTaskWorkspaceId(taskId);
+  const workspaceCodePath = useWorkspaceCodePath(workspaceId ?? "");
+  const openFileViewTab = useSetAtom(openFileViewTabAtom);
+  const handleFilePathActivate = useCallback(
+    (navPath: string): void => {
+      if (workspaceId === undefined) return;
+      openFileViewTab({ workspaceId, filePath: navPath });
+    },
+    [openFileViewTab, workspaceId],
+  );
+
   const { terminalContainerRef } = useTerminal({
     terminalPath: `/api/v1/agents/${taskId}/terminal/ws`,
     isVisible: true,
     fontSize: 13,
     lineHeight: 1.1,
+    onFilePathActivate: handleFilePathActivate,
+    workspaceCodePath,
     // The terminal is this agent's only input surface and the pane remounts
     // on every tab switch, so it must take keyboard focus immediately (SCU-1578).
     focusOnVisible: true,

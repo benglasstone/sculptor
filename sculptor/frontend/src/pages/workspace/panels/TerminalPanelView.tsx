@@ -12,6 +12,8 @@ import { ElementIds } from "~/api";
 import { reportTerminalConnectionStatusAtom } from "~/common/state/atoms/terminalTabs.ts";
 import { makeTerminalPanelId } from "~/components/sections/registry/dynamicPanels.tsx";
 import { terminalPanelMountedAtom } from "~/pages/workspace/atoms.ts";
+import { openFileViewTabAtom } from "~/pages/workspace/components/diffPanel/atoms.ts";
+import { useWorkspaceCodePath } from "~/pages/workspace/hooks/useWorkspaceCodePath.ts";
 
 import styles from "./TerminalPanelView.module.scss";
 import type { TerminalConnectionStatus } from "./useTerminal.ts";
@@ -27,12 +29,26 @@ export const TerminalPanelView = ({ workspaceId, index }: { workspaceId: string;
     [panelId, reportConnectionStatus],
   );
 
+  // Ctrl/cmd-clicking a workspace file path in terminal output opens it in the
+  // file viewer — the terminal counterpart of the clickable paths in chat, and
+  // the only way to reach a file an agent names when the agent IS the terminal.
+  const workspaceCodePath = useWorkspaceCodePath(workspaceId);
+  const openFileViewTab = useSetAtom(openFileViewTabAtom);
+  const handleFilePathActivate = useCallback(
+    (navPath: string): void => {
+      openFileViewTab({ workspaceId, filePath: navPath });
+    },
+    [openFileViewTab, workspaceId],
+  );
+
   // Reuse the existing xterm + WebSocket I/O unchanged. A panel-hosted terminal is
   // always the rendered content of its sub-section, so it is visible whenever mounted.
   const { terminalContainerRef } = useTerminal({
     terminalPath: `/api/v1/workspaces/${workspaceId}/terminal/${index}/ws`,
     isVisible: true,
     onConnectionStatusChange: handleConnectionStatusChange,
+    onFilePathActivate: handleFilePathActivate,
+    workspaceCodePath,
   });
 
   // Forget this terminal's connection status on unmount. useTerminal deliberately

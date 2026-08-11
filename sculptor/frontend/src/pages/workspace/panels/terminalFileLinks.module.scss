@@ -1,0 +1,19 @@
+// Hover hint for a ctrl/cmd-clickable file path in terminal output. The
+// terminal renders through the WebGL renderer, so the path itself has no DOM
+// node to attach a title to -- this is a floating element positioned from the
+// pointer instead.
+.tooltip {
+  background-color: var(--gray-3);
+  border: 1px solid var(--gray-6);
+  border-radius: var(--radius-2);
+  color: var(--gray-12);
+  font-family: var(--default-font-family);
+  font-size: var(--font-size-1);
+  padding: 2px var(--space-2);
+  // Never eat the pointer: the link underneath must stay hoverable and clickable.
+  pointer-events: none;
+  // Viewport-relative so the terminal container's own positioning is irrelevant.
+  position: fixed;
+  white-space: nowrap;
+  z-index: var(--z-tooltip);
+}

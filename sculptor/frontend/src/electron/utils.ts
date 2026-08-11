@@ -57,6 +57,9 @@ export const getMetaKey = (): string => {
   return isMac() ? "⌘" : "Ctrl";
 };
 
-export const isModifierPressed = (e: KeyboardEvent | React.KeyboardEvent): boolean => {
+// Accepts mouse events as well as keyboard ones: a modifier-click (open in a
+// new place rather than act in place) reads the same platform modifier as a
+// keyboard shortcut does.
+export const isModifierPressed = (e: KeyboardEvent | React.KeyboardEvent | MouseEvent | React.MouseEvent): boolean => {
   return isMac() ? e.metaKey : e.ctrlKey;
 };
