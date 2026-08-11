@@ -42,17 +42,15 @@ the TOML at the copied hooks file.)
   - `$SCULPT_PLUGINS_DIR` — the bundled Sculptor plugin directories, loaded
     via `--plugin-dir` (same plugins chat agents get: `sculptor-plugin`,
     `sculptor-workflow`, `sculptor-experimental`).
-- It launches with `--dangerously-skip-permissions` (matching how Sculptor
-  runs Claude for chat agents); the settings file skips the one-time
-  bypass-permissions disclaimer so the TUI lands directly at its prompt. This
-  is the **same permission posture Sculptor already uses for its native Claude
-  agents** — the agent runs inside the Sculptor-managed workspace environment
-  for that repo, not as a separately-elevated process — so installing this
-  registration out of the box grants it no privilege those agents don't
-  already have. (If you run Sculptor in a mode where the workspace is your
-  local checkout, the agent acts on that checkout without per-command prompts,
-  exactly as a native chat agent does; edit or delete this registration if you
-  want a different posture.)
+- It launches with the TUI's default permission handling — the agent prompts
+  before acting, exactly as `claude` does when you start it yourself. The
+  agent runs inside the Sculptor-managed workspace environment for that repo,
+  not as a separately-elevated process, so installing this registration out
+  of the box grants it no privilege beyond that workspace. If you want the
+  unprompted posture Sculptor's native chat agents use, add
+  `--dangerously-skip-permissions` to both commands in the registration (and
+  set `"skipDangerousModePermissionPrompt": true` in the settings file to skip
+  the one-time disclaimer).
 - `--settings` points at `claude-code-hooks.json`, whose hooks report state
   to Sculptor through the `sculpt signal` CLI (on PATH inside every agent
   terminal):

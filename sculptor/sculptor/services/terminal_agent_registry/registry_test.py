@@ -115,7 +115,8 @@ def test_bundled_claude_code_sample_round_trips_through_loader(registrations_dir
     # terminal-agent PTY injects — never baked-in absolutes.
     assert '"$SCULPT_CLAUDE_BIN"' in registration.launch_command
     assert "$SCULPT_PLUGINS_DIR" in registration.launch_command
-    assert "--dangerously-skip-permissions" in registration.launch_command
+    # Permissions are left to the TUI's own prompting, not bypassed.
+    assert "--dangerously-skip-permissions" not in registration.launch_command
     # The hooks path uses the {terminal_agents_directory} placeholder, resolved
     # at command-render time (not baked in), and the loader accepts it verbatim.
     assert "{terminal_agents_directory}" in registration.launch_command
