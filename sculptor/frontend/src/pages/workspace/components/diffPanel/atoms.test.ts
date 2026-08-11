@@ -11,6 +11,9 @@ import {
   diffPanelStateAtomFamily,
   diffScopeAtomFamily,
   getRecentDiffFilesAtom,
+  isMarkdownPath,
+  isMermaidPath,
+  isRenderablePath,
   openFileViewTabAtom,
   recordRecentDiffFileAtom,
   resetReviewAllScopeAtom,
@@ -174,5 +177,28 @@ describe("resetReviewAllScopeAtom", () => {
     store.set(resetReviewAllScopeAtom);
 
     expect(store.get(diffScopeAtomFamily(WORKSPACE_ID))).toBe("uncommitted");
+  });
+});
+
+describe("renderable file paths", () => {
+  it("recognizes markdown files, case-insensitively", () => {
+    expect(isMarkdownPath("docs/README.md")).toBe(true);
+    expect(isMarkdownPath("NOTES.MARKDOWN")).toBe(true);
+    expect(isMarkdownPath("src/main.ts")).toBe(false);
+    // The extension must terminate the path — a directory named `.md` does not
+    // make the file inside it markdown.
+    expect(isMarkdownPath("docs.md/index.ts")).toBe(false);
+  });
+
+  it("recognizes standalone Mermaid diagram files", () => {
+    expect(isMermaidPath("docs/flow.mmd")).toBe(true);
+    expect(isMermaidPath("docs/flow.mermaid")).toBe(true);
+    expect(isMermaidPath("docs/flow.md")).toBe(false);
+  });
+
+  it("treats both kinds as renderable (they share the render toggle)", () => {
+    expect(isRenderablePath("README.md")).toBe(true);
+    expect(isRenderablePath("flow.mmd")).toBe(true);
+    expect(isRenderablePath("main.ts")).toBe(false);
   });
 });

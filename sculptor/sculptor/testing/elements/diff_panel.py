@@ -63,6 +63,14 @@ class PlaywrightDiffPanelElement(PlaywrightIntegrationTestElement):
     def get_read_only_preview_frontmatter(self) -> Locator:
         return self.get_read_only_preview_markdown().get_by_test_id(ElementIDs.READ_ONLY_PREVIEW_FRONTMATTER)
 
+    def get_read_only_preview_diagram(self) -> Locator:
+        """The rendered body of a standalone Mermaid diagram file (``.mmd``)."""
+        return self.get_read_only_preview().get_by_test_id(ElementIDs.READ_ONLY_PREVIEW_DIAGRAM)
+
+    def get_mermaid_diagrams(self) -> Locator:
+        """Every rendered Mermaid diagram in this preview (fences and ``.mmd`` bodies)."""
+        return self.get_read_only_preview().get_by_test_id(ElementIDs.MERMAID_DIAGRAM)
+
     def ensure_render_mode(self, mode: Literal["rendered", "source"]) -> None:
         """Ensure the render-mode toggle is in ``mode`` (``"rendered"`` or ``"source"``)."""
         toggle = self.get_render_toggle()

@@ -174,6 +174,13 @@ export const recordRecentDiffFileAtom = atom(
 
 export const isMarkdownPath = (filePath: string): boolean => /\.(md|markdown)$/i.test(filePath);
 
+/** A standalone Mermaid diagram file — the whole file is one diagram source. */
+export const isMermaidPath = (filePath: string): boolean => /\.(mmd|mermaid)$/i.test(filePath);
+
+/** Files the read-only preview can show rendered instead of as source. Drives
+ *  the render toggle and the quick-open-rendered icon in the viewer header. */
+export const isRenderablePath = (filePath: string): boolean => isMarkdownPath(filePath) || isMermaidPath(filePath);
+
 // ---------------------------------------------------------------------------
 // Discriminated union payload for the unified setActiveDiffTabAtom
 // ---------------------------------------------------------------------------

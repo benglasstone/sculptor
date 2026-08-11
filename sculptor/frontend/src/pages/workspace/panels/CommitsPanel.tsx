@@ -39,6 +39,15 @@ const CommitsPanelContent = ({ workspaceId }: { workspaceId: string }): ReactEle
     [setSelected],
   );
 
+  // The viewer's close (X) clears the local click selection only when it points
+  // at the closed file. The viewer closes the shared diff tab itself.
+  const handleCloseFile = useCallback(
+    (filePath: string): void => {
+      setSelected((prev) => (prev?.filePath === filePath ? null : prev));
+    },
+    [setSelected],
+  );
+
   const handleCollapseAll = useCallback((): void => {
     collapseAllCommits({ workspaceId });
   }, [collapseAllCommits, workspaceId]);
@@ -79,6 +88,7 @@ const CommitsPanelContent = ({ workspaceId }: { workspaceId: string }): ReactEle
           selection={selection}
           treeOptions={treeOptions}
           sidebarToggle={sidebarToggle}
+          onCloseFile={handleCloseFile}
         />
       )}
     />

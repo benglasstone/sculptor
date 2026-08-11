@@ -62,6 +62,16 @@ const FilesPanelContent = ({ workspaceId }: { workspaceId: string }): ReactEleme
     [setLocalSelection],
   );
 
+  // The viewer's close (X) clears the local click selection only when it points
+  // at the closed file — a file the viewer got from an agent open survives an
+  // unrelated local click. The viewer closes the shared diff tab itself.
+  const handleCloseFile = useCallback(
+    (filePath: string): void => {
+      setLocalSelection((prev) => (prev?.filePath === filePath ? null : prev));
+    },
+    [setLocalSelection],
+  );
+
   const handleToggleViewMode = useCallback((): void => {
     toggleViewMode({ workspaceId });
   }, [toggleViewMode, workspaceId]);
@@ -127,6 +137,7 @@ const FilesPanelContent = ({ workspaceId }: { workspaceId: string }): ReactEleme
           selection={selection}
           treeOptions={treeOptions}
           sidebarToggle={sidebarToggle}
+          onCloseFile={handleCloseFile}
         />
       )}
     />

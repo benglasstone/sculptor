@@ -19,10 +19,12 @@ import {
   FILE_MARKDOWN_REMARK_PLUGINS,
   safeUrlTransform,
 } from "~/components/MarkdownDiff/markdownPlugins.ts";
+import { MermaidBlock } from "~/components/MarkdownDiff/MermaidBlock.tsx";
+import { getMermaidFenceSource } from "~/components/MarkdownDiff/mermaidFence.ts";
 import { VerticalOverlayScrollbar } from "~/components/VerticalOverlayScrollbar.tsx";
 
 import type { MarkdownRenderMode } from "./atoms.ts";
-import { isMarkdownPath, markdownRenderModeAtom } from "./atoms.ts";
+import { isMarkdownPath, isMermaidPath, markdownRenderModeAtom } from "./atoms.ts";
 import {
   adoptPierreOverrideSheet,
   createPierreOverrideSheet,
@@ -44,6 +46,13 @@ const READ_ONLY_PREVIEW_COMPONENTS: Components = {
       {children}
     </MarkdownAnchor>
   ),
+  // A ```mermaid fence renders as a diagram; every other fenced block keeps the
+  // default `<pre>` (the plain-source look styled by `.markdownBody`).
+  pre: ({ children }) => {
+    const mermaidSource = getMermaidFenceSource(children);
+    if (mermaidSource === null) return <pre>{children}</pre>;
+    return <MermaidBlock source={mermaidSource} />;
+  },
 };
 
 // The shared Pierre background override plus the native-scrollbar hide (this
@@ -125,7 +134,10 @@ export const ReadOnlyPreview = ({ workspaceId, filePath, renderModeOverride }: R
   // draws a persistent vertical bar off it, since a styled native scrollbar renders
   // nothing at rest under macOS overlay-scrollbar mode.
   const containerRef = useRef<HTMLDivElement>(null);
-  const shouldRenderMarkdown = isMarkdownPath(filePath) && markdownMode === "rendered";
+  const isRendered = markdownMode === "rendered";
+  const shouldRenderMarkdown = isMarkdownPath(filePath) && isRendered;
+  // A `.mmd` file is a single diagram source — no markdown wrapper around it.
+  const shouldRenderDiagram = isMermaidPath(filePath) && isRendered;
 
   // Inject our override stylesheet into Pierre's shadow DOM (see
   // adoptPierreOverrideSheet for why this is a layout effect). The container
@@ -183,6 +195,26 @@ export const ReadOnlyPreview = ({ workspaceId, filePath, renderModeOverride }: R
           Could not load file content
         </Text>
       </Flex>
+    );
+  }
+
+  if (shouldRenderDiagram) {
+    // Same wrapper shape as the markdown branch below — in particular the
+    // single content child, which VerticalOverlayScrollbar observes for the
+    // growth that lands when the async diagram render finishes.
+    return (
+      <div className={styles.wrapper} data-testid={ElementIds.READ_ONLY_PREVIEW}>
+        <div
+          ref={containerRef}
+          className={`${styles.container} ${styles.diagramBody}`}
+          data-testid={ElementIds.READ_ONLY_PREVIEW_DIAGRAM}
+        >
+          <div>
+            <MermaidBlock source={fileContents.contents} />
+          </div>
+        </div>
+        <VerticalOverlayScrollbar scrollRef={containerRef} thumbTestId={ElementIds.READ_ONLY_PREVIEW_SCROLLBAR_THUMB} />
+      </div>
     );
   }
 

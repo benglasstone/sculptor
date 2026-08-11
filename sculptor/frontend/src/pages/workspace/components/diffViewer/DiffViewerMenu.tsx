@@ -42,7 +42,8 @@ const TreeOptionItems = ({ options }: { options: TreeViewOptions }): ReactElemen
   </>
 );
 
-/** The diff view controls: find, split/unified, wrap, and (for markdown) render. */
+/** The diff view controls: find, split/unified, wrap, and (for markdown and
+ *  diagram files) render. */
 const DiffViewOptionItems = ({ isBinary, options }: { isBinary: boolean; options: DiffViewOptions }): ReactElement => (
   <>
     {!isBinary && (
@@ -66,7 +67,7 @@ const DiffViewOptionItems = ({ isBinary, options }: { isBinary: boolean; options
     {options.showRenderToggle && (
       <DropdownMenu.Item onSelect={() => options.onToggleRender()} data-testid={ElementIds.DIFF_RENDER_TOGGLE}>
         {options.isRendered ? <Code size={14} /> : <BookOpen size={14} />}
-        {options.isRendered ? "Show source" : "Render markdown"}
+        {options.isRendered ? "Show source" : options.renderLabel}
       </DropdownMenu.Item>
     )}
   </>

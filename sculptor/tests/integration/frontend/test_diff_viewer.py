@@ -18,7 +18,8 @@ loading bar; the loading bar shows only while an open file's diff is in flight.
 
 Coverage: branch-change diff refresh, single-viewer file swapping, the
 empty/loading state, the markdown render toggle and its GFM / link-safety /
-frontmatter rendering, opening a file's diff from a chat chip, the split/unified and
+frontmatter rendering, Mermaid diagrams (fences and standalone `.mmd` files),
+opening a file's diff from a chat chip, the split/unified and
 line-wrap toggles with persistence, find-in-file, copy-file-path for
 outside-repo files, and the Shiki-decoration / Pierre ``renderHunks`` /
 expansion-line-number guards.
@@ -195,6 +196,27 @@ draft = false
 # Toml heading
 
 Body.
+"""
+
+# A `.mmd` file: the whole file is one diagram source, with no markdown around it.
+_MERMAID_DIAGRAM_FILE_CONTENT = """\
+graph TD;
+  Start-->Middle;
+  Middle-->End;
+"""
+
+# A markdown file whose fenced ```mermaid block renders as a diagram. The
+# trailing paragraph pins that the surrounding markdown still renders.
+_MERMAID_FENCE_FILE_CONTENT = """\
+# Flow
+
+```mermaid
+graph TD;
+  Start-->Middle;
+  Middle-->End;
+```
+
+Text after the diagram.
 """
 
 _WRITE_FILE_PROMPT = """\
@@ -417,9 +439,18 @@ def _write_file_via_fake_claude(file_path: str, content: str) -> str:
     return f'fake_claude:multi_step `{{"steps": [{{"command": "write_file", "args": {{"file_path": "{file_path}", "content": "{escaped}"}}}}]}}`'
 
 
-def _ensure_render_mode(viewer: PlaywrightDiffViewerElement, page: Page, mode: str) -> None:
-    """Drive the render-markdown toggle (a flipping item in the triple-dot
-    menu) to ``mode`` (``rendered`` / ``source``).
+def _ensure_render_mode(
+    viewer: PlaywrightDiffViewerElement,
+    page: Page,
+    mode: str,
+    rendered_body: Locator | None = None,
+) -> None:
+    """Drive the render toggle (a flipping item in the triple-dot menu) to
+    ``mode`` (``rendered`` / ``source``).
+
+    ``rendered_body`` is the container that exists only in rendered mode, and so
+    reports the effective mode. It defaults to the markdown body; a ``.mmd``
+    diagram file renders a diagram body instead and must pass its own.
 
     Effective mode is read from CONTENT — the rendered markdown wrapper is mounted
     only in rendered mode — rather than the menu item's label (which is only in
@@ -430,20 +461,20 @@ def _ensure_render_mode(viewer: PlaywrightDiffViewerElement, page: Page, mode: s
     # Anchor on a deterministic baseline first: confirm the preview wrapper is
     # mounted with the default 30s timeout, so a slow mount is never misread.
     expect(viewer.get_read_only_preview()).to_be_visible()
-    markdown = viewer.get_read_only_preview_markdown()
-    # The markdown body and the source view are mutually exclusive branches of
-    # the SAME render commit (ReadOnlyPreview's `shouldRenderMarkdown` gate), so
-    # once the preview wrapper is visible the body's presence is already settled.
-    # Read it as a stable attachment count rather than a shortened visibility
-    # probe — the latter could mis-time a slow mount as "source" and toggle the
-    # wrong way.
-    currently_rendered = markdown.count() > 0
+    body = rendered_body if rendered_body is not None else viewer.get_read_only_preview_markdown()
+    # The rendered body and the source view are mutually exclusive branches of
+    # the SAME render commit (ReadOnlyPreview's `shouldRenderMarkdown` /
+    # `shouldRenderDiagram` gates), so once the preview wrapper is visible the
+    # body's presence is already settled. Read it as a stable attachment count
+    # rather than a shortened visibility probe — the latter could mis-time a slow
+    # mount as "source" and toggle the wrong way.
+    currently_rendered = body.count() > 0
     if currently_rendered != want_rendered:
         viewer.toggle_view_option_via_menu("render")
     if want_rendered:
-        expect(viewer.get_read_only_preview_markdown()).to_be_visible()
+        expect(body).to_be_visible()
     else:
-        expect(viewer.get_read_only_preview_markdown()).not_to_be_attached()
+        expect(body).not_to_be_attached()
 
 
 def _open_markdown_file_in_files_panel(page: Page, file_name: str, content: str) -> PlaywrightDiffViewerElement:
@@ -461,6 +492,24 @@ def _open_markdown_file_in_files_panel(page: Page, file_name: str, content: str)
     files_panel = get_files_panel_in(section_root, page)
     viewer = files_panel.open_file(file_name)
     _ensure_render_mode(viewer, page, "rendered")
+    return viewer
+
+
+def _open_diagram_file_in_files_panel(page: Page, file_name: str, content: str) -> PlaywrightDiffViewerElement:
+    """As ``_open_markdown_file_in_files_panel``, for a standalone ``.mmd`` file.
+
+    A diagram file shares the markdown render-mode preference but renders a
+    diagram body rather than a markdown one, so the mode is confirmed against
+    that body.
+    """
+    task_page = start_task_and_wait_for_ready(page, prompt=_write_file_via_fake_claude(file_name, content))
+    chat_panel = task_page.get_chat_panel()
+    wait_for_completed_message_count(chat_panel=chat_panel, expected_message_count=2)
+
+    section_root = open_panel(page, "files", sub_section="center")
+    files_panel = get_files_panel_in(section_root, page)
+    viewer = files_panel.open_file(file_name)
+    _ensure_render_mode(viewer, page, "rendered", rendered_body=viewer.get_read_only_preview_diagram())
     return viewer
 
 
@@ -828,6 +877,40 @@ def test_diff_loading_bar_hidden_when_no_file_open(sculptor_instance_: SculptorI
 
 
 # --------------------------------------------------------------------------- #
+# Closing the open file
+# --------------------------------------------------------------------------- #
+
+
+@user_story("to close the file I am viewing and get back to an empty viewer")
+def test_close_button_empties_the_viewer(sculptor_instance_: SculptorInstance) -> None:
+    """The header's X closes the open file. It must clear BOTH the panel's local
+    click selection and the shared diff tab — clearing one leaves the other
+    winning the panel's recency reconcile, and the file springs straight back."""
+    page = sculptor_instance_.page
+
+    task_page = start_task_and_wait_for_ready(page, prompt=_WRITE_MD_AND_PY_PROMPT)
+    chat_panel = task_page.get_chat_panel()
+    wait_for_completed_message_count(chat_panel=chat_panel, expected_message_count=2)
+
+    section_root = open_panel(page, "files", sub_section="center")
+    files_panel = get_files_panel_in(section_root, page)
+    viewer = files_panel.open_file("main.py")
+    expect(viewer.get_read_only_preview()).to_be_visible()
+
+    viewer.get_close_file_button().click()
+
+    expect(viewer.get_empty_body()).to_be_visible()
+    expect(viewer.get_read_only_preview()).not_to_be_attached()
+    # The X goes with the file: the empty header has nothing to close.
+    expect(viewer.get_close_file_button()).to_have_count(0)
+
+    # Re-opening the same file still works after a close (the cleared selection
+    # must not swallow an identical follow-up click).
+    files_panel.open_file("main.py")
+    expect(viewer.get_read_only_preview()).to_be_visible()
+
+
+# --------------------------------------------------------------------------- #
 # Markdown render toggle
 # --------------------------------------------------------------------------- #
 
@@ -1066,6 +1149,59 @@ def test_toml_frontmatter_renders_as_raw_block(sculptor_instance_: SculptorInsta
     html = (body.inner_html() or "").lower()
     assert "<h1>toml heading</h1>" in html, f"body heading missing: {html[:600]!r}"
     assert len(re.findall(r"<h[1-6]\b", html)) == 1, f"expected exactly one heading: {html[:800]!r}"
+
+
+# --------------------------------------------------------------------------- #
+# Mermaid diagrams
+#
+# A ```mermaid fence in a rendered `.md` file, and a standalone `.mmd` file,
+# both render as an SVG diagram. mermaid is loaded lazily and renders
+# asynchronously, so these assertions are the only place the whole path (chunk
+# load, render, DOM injection) is exercised end to end.
+# --------------------------------------------------------------------------- #
+
+
+@user_story("to see a mermaid code block in a markdown file rendered as a diagram")
+def test_mermaid_fence_renders_as_diagram(sculptor_instance_: SculptorInstance) -> None:
+    """A ```mermaid fence becomes an SVG diagram; the surrounding markdown still
+    renders and the fence's source text is consumed rather than shown."""
+    page = sculptor_instance_.page
+    viewer = _open_markdown_file_in_files_panel(page, "flow.md", _MERMAID_FENCE_FILE_CONTENT)
+
+    body = viewer.get_read_only_preview_markdown()
+    expect(body).to_be_visible()
+    diagram = viewer.get_mermaid_diagrams()
+    expect(diagram).to_have_count(1)
+    expect(diagram).to_be_visible()
+    # The diagram rendered rather than falling back to its source.
+    expect(viewer.get_mermaid_diagram_errors()).to_have_count(0)
+    assert "<svg" in (diagram.inner_html() or "").lower(), "diagram did not produce an SVG"
+
+    # Surrounding markdown is untouched, and the fence's own source is gone —
+    # a diagram replaces the code block rather than sitting alongside it.
+    expect(body).to_contain_text("Text after the diagram.")
+    expect(body).not_to_contain_text("graph TD;")
+
+
+@user_story("to open a .mmd file and see the diagram it describes")
+def test_mermaid_file_renders_as_diagram(sculptor_instance_: SculptorInstance) -> None:
+    """A standalone `.mmd` file renders as one diagram, and the render toggle
+    still switches it back to the verbatim source."""
+    page = sculptor_instance_.page
+    viewer = _open_diagram_file_in_files_panel(page, "flow.mmd", _MERMAID_DIAGRAM_FILE_CONTENT)
+
+    diagram_body = viewer.get_read_only_preview_diagram()
+    expect(diagram_body).to_be_visible()
+    diagram = viewer.get_mermaid_diagrams()
+    expect(diagram).to_have_count(1)
+    expect(viewer.get_mermaid_diagram_errors()).to_have_count(0)
+    assert "<svg" in (diagram.inner_html() or "").lower(), "diagram did not produce an SVG"
+    # A `.mmd` file is not markdown — no markdown body is mounted for it.
+    expect(viewer.get_read_only_preview_markdown()).not_to_be_attached()
+
+    _ensure_render_mode(viewer, page, "source", rendered_body=diagram_body)
+    expect(viewer.get_mermaid_diagrams()).to_have_count(0)
+    expect(viewer.get_read_only_preview()).to_be_visible()
 
 
 # --------------------------------------------------------------------------- #

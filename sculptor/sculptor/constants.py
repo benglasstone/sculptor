@@ -238,6 +238,8 @@ class ElementIDs(StrEnum):
     DIFF_RENDER_TOGGLE = "DIFF_RENDER_TOGGLE"
     # Header icon on markdown diff/commit files that opens the rendered file view.
     DIFF_OPEN_RENDERED_MARKDOWN = "DIFF_OPEN_RENDERED_MARKDOWN"
+    # Header icon that closes the open file, returning the viewer to its empty state.
+    DIFF_CLOSE_FILE = "DIFF_CLOSE_FILE"
     # The viewer header's file-path breadcrumb (a Select listing recently viewed files).
     DIFF_FILE_PATH_SELECT = "DIFF_FILE_PATH_SELECT"
     DIFF_FIND_IN_FILE_BTN = "DIFF_FIND_IN_FILE_BTN"
@@ -247,6 +249,14 @@ class ElementIDs(StrEnum):
     READ_ONLY_PREVIEW_MARKDOWN = "READ_ONLY_PREVIEW_MARKDOWN"
     READ_ONLY_PREVIEW_FRONTMATTER = "READ_ONLY_PREVIEW_FRONTMATTER"
     READ_ONLY_PREVIEW_SCROLLBAR_THUMB = "READ_ONLY_PREVIEW_SCROLLBAR_THUMB"
+    # Body container for a rendered diagram file (.mmd), the counterpart of
+    # READ_ONLY_PREVIEW_MARKDOWN for markdown files.
+    READ_ONLY_PREVIEW_DIAGRAM = "READ_ONLY_PREVIEW_DIAGRAM"
+    # One rendered Mermaid diagram — a ```mermaid fence inside a rendered
+    # markdown file, or the whole body of a rendered .mmd file.
+    MERMAID_DIAGRAM = "MERMAID_DIAGRAM"
+    # Shown in place of a diagram whose source failed to parse.
+    MERMAID_DIAGRAM_ERROR = "MERMAID_DIAGRAM_ERROR"
 
     # Changes Panel
     CHANGES_PANEL = "CHANGES_PANEL"

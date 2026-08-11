@@ -1,5 +1,5 @@
 import { Flex, IconButton, Tooltip } from "@radix-ui/themes";
-import { BookOpen } from "lucide-react";
+import { BookOpen, X } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { useMemo } from "react";
 
@@ -31,9 +31,14 @@ type DiffViewerHeaderProps = {
   leadingControl?: ReactNode;
   /** The manual data refresh, surfaced as a triple-dot menu item. */
   onRefresh?: () => void;
-  /** When set, shows a quick-open icon that opens the file's rendered
-   *  markdown view in the Files panel (offered on diff/commit headers). */
-  onOpenRenderedMarkdown?: () => void;
+  /** Quick-open icon that opens the file's rendered markdown / diagram view in
+   *  the Files panel (offered on diff/commit headers). Omit to hide the icon.
+   *  The label carries the tooltip and aria-label, whose wording differs
+   *  between markdown and diagram files. */
+  openRendered?: { label: string; handleOpen: () => void };
+  /** Closes the open file, returning the viewer to its empty state. Omit to
+   *  hide the close icon (the empty header has no file to close). */
+  onClose?: () => void;
 };
 
 /**
@@ -52,7 +57,8 @@ export const DiffViewerHeader = ({
   treeOptions,
   leadingControl,
   onRefresh,
-  onOpenRenderedMarkdown,
+  openRendered,
+  onClose,
 }: DiffViewerHeaderProps): ReactElement => {
   const isBinary = isBinaryProp || isBinaryFile(filePath.split("/").pop() ?? "");
 
@@ -88,14 +94,14 @@ export const DiffViewerHeader = ({
         </span>
       )}
 
-      {onOpenRenderedMarkdown && (
-        <Tooltip content="Open rendered markdown">
+      {openRendered && (
+        <Tooltip content={openRendered.label}>
           <IconButton
             variant="ghost"
             size="1"
             color="gray"
-            onClick={onOpenRenderedMarkdown}
-            aria-label="Open rendered markdown"
+            onClick={openRendered.handleOpen}
+            aria-label={openRendered.label}
             data-testid={ElementIds.DIFF_OPEN_RENDERED_MARKDOWN}
           >
             <BookOpen size={14} />
@@ -111,6 +117,21 @@ export const DiffViewerHeader = ({
         isBinary={isBinary}
         onRefresh={onRefresh}
       />
+
+      {onClose && (
+        <Tooltip content="Close file">
+          <IconButton
+            variant="ghost"
+            size="1"
+            color="gray"
+            onClick={onClose}
+            aria-label="Close file"
+            data-testid={ElementIds.DIFF_CLOSE_FILE}
+          >
+            <X size={14} />
+          </IconButton>
+        </Tooltip>
+      )}
     </Flex>
   );
 };

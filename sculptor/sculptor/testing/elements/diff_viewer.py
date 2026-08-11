@@ -30,7 +30,7 @@ class PlaywrightDiffViewerElement(PlaywrightIntegrationTestElement):
     own selection — there is no shared "active diff" singleton — so this POM is
     constructed scoped to a single panel's viewer rather than reaching for a
     page-wide diff panel. All view toggles (split/unified, line wrap,
-    find-in-file, render markdown) and the list flat/tree + collapse-all controls
+    find-in-file, render markdown / diagram) and the list flat/tree + collapse-all controls
     live in the header's single triple-dot menu
     (``DIFF_FILE_HEADER_MENU_TRIGGER``); reach them through
     ``toggle_view_option_via_menu``. There is no expand/fullscreen control;
@@ -39,6 +39,10 @@ class PlaywrightDiffViewerElement(PlaywrightIntegrationTestElement):
 
     def get_file_header(self) -> Locator:
         return self.get_by_test_id(ElementIDs.DIFF_FILE_HEADER)
+
+    def get_close_file_button(self) -> Locator:
+        """The header's X, which closes the open file and empties the viewer."""
+        return self.get_file_header().get_by_test_id(ElementIDs.DIFF_CLOSE_FILE)
 
     def get_read_only_preview(self) -> Locator:
         return self.get_by_test_id(ElementIDs.READ_ONLY_PREVIEW)
@@ -55,6 +59,23 @@ class PlaywrightDiffViewerElement(PlaywrightIntegrationTestElement):
         also pins that the block is a rendered-view-only affordance.
         """
         return self.get_read_only_preview_markdown().get_by_test_id(ElementIDs.READ_ONLY_PREVIEW_FRONTMATTER)
+
+    def get_read_only_preview_diagram(self) -> Locator:
+        """The rendered body of a standalone Mermaid diagram file (``.mmd``)."""
+        return self.get_read_only_preview().get_by_test_id(ElementIDs.READ_ONLY_PREVIEW_DIAGRAM)
+
+    def get_mermaid_diagrams(self) -> Locator:
+        """Every rendered Mermaid diagram in this preview.
+
+        Matches both a ```mermaid fence inside a rendered markdown file and the
+        whole body of a rendered ``.mmd`` file, so it can be several per file —
+        use ``.nth()`` / ``.first`` at the call site.
+        """
+        return self.get_read_only_preview().get_by_test_id(ElementIDs.MERMAID_DIAGRAM)
+
+    def get_mermaid_diagram_errors(self) -> Locator:
+        """The fallbacks shown in place of diagrams whose source failed to parse."""
+        return self.get_read_only_preview().get_by_test_id(ElementIDs.MERMAID_DIAGRAM_ERROR)
 
     def get_skeleton(self) -> Locator:
         """The static, no-shimmer placeholder shown while a diff is about to render."""

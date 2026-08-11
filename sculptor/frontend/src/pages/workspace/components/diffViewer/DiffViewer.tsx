@@ -20,7 +20,8 @@ import { IndeterminateProgress } from "~/components/IndeterminateProgress.tsx";
 import type { MarkdownRenderMode } from "~/pages/workspace/components/diffPanel/atoms.ts";
 import {
   closeDiffTabAtom,
-  isMarkdownPath,
+  isMermaidPath,
+  isRenderablePath,
   markdownRenderModeAtom,
   openFileViewTabAtom,
 } from "~/pages/workspace/components/diffPanel/atoms.ts";
@@ -94,8 +95,10 @@ type DiffViewerProps = {
   /** The sidebar-visibility toggle rendered before the breadcrumb. */
   sidebarToggle?: ReactElement;
   /** Clear the host panel's local click selection for `filePath`, invoked
-   *  alongside the shared-tab close when the deleted-file banner is dismissed.
-   *  Panels whose selection can't reach a deleted file (Files / Commits) omit it. */
+   *  alongside the shared-tab close whenever the file is closed — the header's
+   *  X, or dismissing the deleted-file banner. A panel that omits it keeps its
+   *  local selection, which then wins the recency reconcile and re-opens the
+   *  file it was just asked to close. */
   onCloseFile?: (filePath: string) => void;
 };
 
@@ -213,11 +216,12 @@ export const DiffViewer = ({
     (renderOverrideDismissedAt === null || (selection.openedAt ?? 0) > renderOverrideDismissedAt);
   const effectiveMarkdownMode: MarkdownRenderMode = isQuickOpenRenderActive ? "rendered" : markdownMode;
 
-  // ReadOnlyPreview is the only path that supports rendered markdown — used for
-  // file-view selections and "no diff" states. Hide the toggle elsewhere.
-  const isMarkdownToggleVisible = useMemo((): boolean => {
+  // ReadOnlyPreview is the only path that supports a rendered view (markdown or
+  // a `.mmd` diagram) — used for file-view selections and "no diff" states.
+  // Hide the toggle elsewhere.
+  const isRenderToggleVisible = useMemo((): boolean => {
     const fp = content.filePath;
-    if (!fp || !isMarkdownPath(fp)) return false;
+    if (!fp || !isRenderablePath(fp)) return false;
     if (content.isBinary || content.errorMessage) return false;
     if (content.isCommitDiff) return false;
     if (content.isFileView) return true;
@@ -243,7 +247,7 @@ export const DiffViewer = ({
     clearHighlights();
   }, [clearHighlights]);
 
-  const handleToggleMarkdownRender = useCallback((): void => {
+  const handleToggleRender = useCallback((): void => {
     // Flip from the EFFECTIVE mode (a quick-open override may differ from the
     // persisted preference) and dismiss any active override so the toggle
     // always visibly changes the view.
@@ -255,17 +259,23 @@ export const DiffViewer = ({
     if (next === "rendered") handleCloseSearch();
   }, [effectiveMarkdownMode, setMarkdownMode, handleCloseSearch]);
 
-  // Find-in-file walks source-view DOM; rendered markdown has none.
-  const isRenderedMarkdownActive = isMarkdownToggleVisible && effectiveMarkdownMode === "rendered";
+  // Find-in-file walks source-view DOM; a rendered view has none.
+  const isRenderedViewActive = isRenderToggleVisible && effectiveMarkdownMode === "rendered";
 
-  // Quick-open a rendered view of a markdown file in the Files panel — offered
-  // on the diff/commit headers (the file-view header has the render toggle
-  // instead). The rendered request rides on the tab (`markdownMode`) so the
-  // receiving viewer renders it without this path rewriting the global
+  // Diagram files get "diagram" wording throughout; markdown files keep the
+  // existing "markdown" wording.
+  const isDiagramFile = content.filePath !== null && isMermaidPath(content.filePath);
+  const renderLabel = isDiagramFile ? "Render diagram" : "Render markdown";
+  const openRenderedLabel = isDiagramFile ? "Open rendered diagram" : "Open rendered markdown";
+
+  // Quick-open a rendered view of a markdown or diagram file in the Files panel
+  // — offered on the diff/commit headers (the file-view header has the render
+  // toggle instead). The rendered request rides on the tab (`markdownMode`) so
+  // the receiving viewer renders it without this path rewriting the global
   // render-mode preference.
   const openFileViewTab = useSetAtom(openFileViewTabAtom);
-  const canQuickOpenRenderedMarkdown = content.filePath !== null && isMarkdownPath(content.filePath);
-  const handleOpenRenderedMarkdown = useCallback((): void => {
+  const canQuickOpenRendered = content.filePath !== null && isRenderablePath(content.filePath);
+  const handleOpenRendered = useCallback((): void => {
     if (!content.filePath) return;
     openFileViewTab({ workspaceId, filePath: content.filePath, markdownMode: "rendered" });
   }, [content.filePath, openFileViewTab, workspaceId]);
@@ -288,11 +298,13 @@ export const DiffViewer = ({
     void refreshWorkspaceDiff();
   }, [content.isFileView, content.isCommitDiff, content.commitHash, workspaceId, refreshWorkspaceDiff]);
 
-  // Dismiss the deleted-file banner: clear the shared diff tab by its IDENTITY
-  // path (which carries a scope prefix for "All"-scope diffs, so the real path
-  // would never match) and the host panel's local click selection, so the close
-  // lands whichever of the two sources drove the view.
-  const handleCloseDeletedFile = useCallback((): void => {
+  // Close the open file — from the header's X, or from the deleted-file banner's
+  // dismiss. Clears the shared diff tab by its IDENTITY path (which carries a
+  // scope prefix for "All"-scope diffs, so the real path would never match) AND
+  // the host panel's local click selection, so the close lands whichever of the
+  // two sources drove the view. Clearing only one leaves the other winning the
+  // panel's recency reconcile, and the file springs back.
+  const handleCloseFile = useCallback((): void => {
     const tabId = content.tabFilePath ?? content.filePath;
     if (tabId !== null) closeDiffTab({ workspaceId, filePath: tabId });
     if (content.filePath !== null) onCloseFile?.(content.filePath);
@@ -305,7 +317,7 @@ export const DiffViewer = ({
   // `PanelSection` marks the active section with `data-active="true"`; a click
   // anywhere in a section (a tree row, the diff) makes it the active one.
   useKeybindingHandler("find_in_file", () => {
-    if (!content.filePath || isRenderedMarkdownActive) return;
+    if (!content.filePath || isRenderedViewActive) return;
     if (rootRef.current?.closest('[data-active="true"]') == null) return;
     setIsSearchOpen(true);
     setSearchFocusRequest((n) => n + 1);
@@ -317,9 +329,10 @@ export const DiffViewer = ({
     lineWrapping: overflow,
     onToggleLineWrapping: handleToggleLineWrapping,
     onToggleSearch: handleToggleSearch,
-    showRenderToggle: isMarkdownToggleVisible,
+    showRenderToggle: isRenderToggleVisible,
     isRendered: effectiveMarkdownMode === "rendered",
-    onToggleRender: handleToggleMarkdownRender,
+    renderLabel,
+    onToggleRender: handleToggleRender,
   };
 
   // Which panel's recents the header's path dropdown feeds and re-opens into —
@@ -362,7 +375,7 @@ export const DiffViewer = ({
     if (status === "D") {
       return (
         <>
-          <DeletedFileBanner onClose={handleCloseDeletedFile} />
+          <DeletedFileBanner onClose={handleCloseFile} />
           {renderDiffContent(diffProps)}
         </>
       );
@@ -419,6 +432,7 @@ export const DiffViewer = ({
             treeOptions={treeOptions}
             leadingControl={sidebarToggle}
             onRefresh={handleRefresh}
+            onClose={handleCloseFile}
           />
           <Flex ref={diffContentRef} direction="column" flexGrow="1" overflow="hidden" className={styles.content}>
             <ReadOnlyPreview
@@ -442,8 +456,11 @@ export const DiffViewer = ({
             treeOptions={treeOptions}
             leadingControl={sidebarToggle}
             onRefresh={handleRefresh}
-            onOpenRenderedMarkdown={
-              canQuickOpenRenderedMarkdown && commitFileStatus !== "D" ? handleOpenRenderedMarkdown : undefined
+            onClose={handleCloseFile}
+            openRendered={
+              canQuickOpenRendered && commitFileStatus !== "D"
+                ? { label: openRenderedLabel, handleOpen: handleOpenRendered }
+                : undefined
             }
           />
           <Flex ref={diffContentRef} direction="column" flexGrow="1" overflow="hidden" className={styles.content}>
@@ -487,9 +504,10 @@ export const DiffViewer = ({
             treeOptions={treeOptions}
             leadingControl={sidebarToggle}
             onRefresh={handleRefresh}
-            onOpenRenderedMarkdown={
-              canQuickOpenRenderedMarkdown && !content.isBinary && content.status !== "D"
-                ? handleOpenRenderedMarkdown
+            onClose={handleCloseFile}
+            openRendered={
+              canQuickOpenRendered && !content.isBinary && content.status !== "D"
+                ? { label: openRenderedLabel, handleOpen: handleOpenRendered }
                 : undefined
             }
           />

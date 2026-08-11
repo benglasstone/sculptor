@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { File, FileCode, FileCog, FileImage, FileJson2, FileText, FileType } from "lucide-react";
+import { File, FileCode, FileCog, FileImage, FileJson2, FileText, FileType, Workflow } from "lucide-react";
 
 /**
  * Maps file extensions to lucide-react icons.
@@ -61,6 +61,10 @@ const EXTENSION_ICON_MAP: Readonly<Record<string, LucideIcon>> = {
   ".log": FileText,
   ".csv": FileText,
   ".rst": FileText,
+
+  // Diagrams (Mermaid sources render as diagrams in the file preview)
+  ".mmd": Workflow,
+  ".mermaid": Workflow,
 
   // Images
   ".png": FileImage,

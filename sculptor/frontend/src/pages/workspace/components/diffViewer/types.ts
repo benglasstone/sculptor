@@ -55,6 +55,9 @@ export type DiffViewOptions = {
   onToggleSearch: () => void;
   showRenderToggle: boolean;
   isRendered: boolean;
+  /** Menu wording for switching into the rendered view — "Render markdown" for
+   *  a `.md` file, "Render diagram" for a `.mmd` one. */
+  renderLabel: string;
   onToggleRender: () => void;
 };
 
