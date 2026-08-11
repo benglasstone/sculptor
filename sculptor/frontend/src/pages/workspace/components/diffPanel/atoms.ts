@@ -78,6 +78,7 @@ export const fileViewSelectionFromTab = (tab: DiffTab | null): DiffSelection | n
     filePath: tab.realPath,
     tabFilePath: tab.filePath,
     markdownMode: tab.markdownMode,
+    lineNumber: tab.lineNumber,
     // `viewedAt` rides along so a repeat quick-open of the same file (a new
     // timestamp, same paths) re-applies a render-mode request the user had
     // dismissed for the previous open.
@@ -200,6 +201,8 @@ type SetActiveFileView = {
   filePath: string;
   /** Set by the quick-open-rendered-markdown path; see {@link FileViewTab}. */
   markdownMode?: "rendered";
+  /** 1-based line to highlight; see {@link FileViewTab}. */
+  lineNumber?: number;
 };
 
 type SetActiveCommitDiff = {
@@ -236,6 +239,7 @@ const buildTabFromPayload = (payload: SetActiveDiffPayload, now: number): DiffTa
         realPath: payload.filePath,
         viewedAt: now,
         markdownMode: payload.markdownMode,
+        lineNumber: payload.lineNumber,
       };
     case "commit-diff":
       return {
@@ -365,7 +369,7 @@ export const resetReviewAllScopeAtom = atom(null, (get, set) => {
 /** Open (or activate) a read-only file view tab. */
 export const openFileViewTabAtom = atom(
   null,
-  (_get, set, params: { workspaceId: string; filePath: string; markdownMode?: "rendered" }) => {
+  (_get, set, params: { workspaceId: string; filePath: string; markdownMode?: "rendered"; lineNumber?: number }) => {
     set(setActiveDiffTabAtom, { kind: "file-view", ...params });
   },
 );

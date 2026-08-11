@@ -9,6 +9,8 @@ import styles from "./terminalFileLinks.module.scss";
 export type TerminalFilePathMatch = {
   /** Workspace-relative path to open (line-number suffix already stripped). */
   navPath: string;
+  /** The `:<digits>` suffix as a number, or null when the path had none. */
+  lineNumber: number | null;
   /** First column of the path text, 1-based and inclusive. */
   startColumn: number;
   /** Last column of the path text, 1-based and inclusive. */
@@ -33,6 +35,7 @@ export const findFilePathMatches = (
     if (segment.kind === "path") {
       matches.push({
         navPath: segment.navPath,
+        lineNumber: segment.lineNumber,
         startColumn: offset + 1,
         endColumn: offset + segment.value.length,
       });
@@ -46,8 +49,9 @@ type LinkProviderOptions = {
   terminal: Terminal;
   /** Absolute path of the workspace clone, used to reject paths outside it. */
   workspaceCodePath: string | null;
-  /** Called with the workspace-relative path when a link is activated. */
-  onActivate: (navPath: string) => void;
+  /** Called with the workspace-relative path, and the line the path named
+   *  (null when it named none), when a link is activated. */
+  onActivate: (navPath: string, lineNumber: number | null) => void;
   /** Host for the hover hint. Omit to skip the hint (e.g. in unit tests, where
    *  there is no laid-out terminal to position it against). */
   hintContainer?: HTMLElement | null;
@@ -127,7 +131,7 @@ export const createFilePathLinkProvider = ({
             activate: (event: MouseEvent): void => {
               if (!isModifierPressed(event)) return;
               hint?.hide();
-              onActivate(match.navPath);
+              onActivate(match.navPath, match.lineNumber);
             },
             hover: (event: MouseEvent): void => hint?.show(event),
             leave: (): void => hint?.hide(),

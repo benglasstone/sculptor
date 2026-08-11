@@ -10,6 +10,7 @@ import {
   closeDiffTabAtom,
   diffPanelStateAtomFamily,
   diffScopeAtomFamily,
+  fileViewSelectionFromTab,
   getRecentDiffFilesAtom,
   isMarkdownPath,
   isMermaidPath,
@@ -200,5 +201,39 @@ describe("renderable file paths", () => {
     expect(isRenderablePath("README.md")).toBe(true);
     expect(isRenderablePath("flow.mmd")).toBe(true);
     expect(isRenderablePath("main.ts")).toBe(false);
+  });
+});
+
+describe("file-view line numbers", () => {
+  it("carries the line through to the selection the viewer reads", () => {
+    const store = createStore();
+    store.set(openFileViewTabAtom, { workspaceId: WORKSPACE_ID, filePath: "src/main.ts", lineNumber: 42 });
+
+    const selection = fileViewSelectionFromTab(store.get(activeDiffTabAtomFamily(WORKSPACE_ID)));
+
+    expect(selection).toMatchObject({ filePath: "src/main.ts", lineNumber: 42 });
+  });
+
+  it("leaves the line undefined when the open named none", () => {
+    const store = createStore();
+    store.set(openFileViewTabAtom, { workspaceId: WORKSPACE_ID, filePath: "src/main.ts" });
+
+    const selection = fileViewSelectionFromTab(store.get(activeDiffTabAtomFamily(WORKSPACE_ID)));
+
+    expect(selection?.kind === "file-view" ? selection.lineNumber : "wrong kind").toBeUndefined();
+  });
+
+  it("moves within the open tab when the same file is re-opened at another line", () => {
+    const store = createStore();
+    store.set(openFileViewTabAtom, { workspaceId: WORKSPACE_ID, filePath: "src/main.ts", lineNumber: 10 });
+    const firstTabPath = store.get(activeDiffTabAtomFamily(WORKSPACE_ID))!.filePath;
+
+    store.set(openFileViewTabAtom, { workspaceId: WORKSPACE_ID, filePath: "src/main.ts", lineNumber: 99 });
+
+    const activeTab = store.get(activeDiffTabAtomFamily(WORKSPACE_ID));
+    // The line must stay out of the tab identity, or every jump would strand a
+    // second tab for the same file.
+    expect(activeTab!.filePath).toBe(firstTabPath);
+    expect(fileViewSelectionFromTab(activeTab)).toMatchObject({ lineNumber: 99 });
   });
 });

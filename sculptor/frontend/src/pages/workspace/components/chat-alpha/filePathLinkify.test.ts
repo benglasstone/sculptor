@@ -164,14 +164,16 @@ describe("splitFilePathSegments", () => {
 
   it("returns single path segment for a standalone path", () => {
     const result = splitFilePathSegments("src/index.ts", null);
-    expect(result).toEqual<ReadonlyArray<Segment>>([{ kind: "path", value: "src/index.ts", navPath: "src/index.ts" }]);
+    expect(result).toEqual<ReadonlyArray<Segment>>([
+      { kind: "path", value: "src/index.ts", navPath: "src/index.ts", lineNumber: null },
+    ]);
   });
 
   it("splits text before and after a path", () => {
     const result = splitFilePathSegments("Edited src/index.ts successfully", null);
     expect(result).toEqual<ReadonlyArray<Segment>>([
       { kind: "text", value: "Edited " },
-      { kind: "path", value: "src/index.ts", navPath: "src/index.ts" },
+      { kind: "path", value: "src/index.ts", navPath: "src/index.ts", lineNumber: null },
       { kind: "text", value: " successfully" },
     ]);
   });
@@ -180,9 +182,9 @@ describe("splitFilePathSegments", () => {
     const result = splitFilePathSegments("Changed src/a.py and src/b.py", null);
     expect(result).toHaveLength(4);
     expect(result[0]).toEqual({ kind: "text", value: "Changed " });
-    expect(result[1]).toEqual({ kind: "path", value: "src/a.py", navPath: "src/a.py" });
+    expect(result[1]).toEqual({ kind: "path", value: "src/a.py", navPath: "src/a.py", lineNumber: null });
     expect(result[2]).toEqual({ kind: "text", value: " and " });
-    expect(result[3]).toEqual({ kind: "path", value: "src/b.py", navPath: "src/b.py" });
+    expect(result[3]).toEqual({ kind: "path", value: "src/b.py", navPath: "src/b.py", lineNumber: null });
   });
 
   it("handles same path appearing twice", () => {
@@ -195,7 +197,7 @@ describe("splitFilePathSegments", () => {
     const result = splitFilePathSegments("See src/file.py:42", null);
     expect(result).toEqual<ReadonlyArray<Segment>>([
       { kind: "text", value: "See " },
-      { kind: "path", value: "src/file.py:42", navPath: "src/file.py" },
+      { kind: "path", value: "src/file.py:42", navPath: "src/file.py", lineNumber: 42 },
     ]);
   });
 
@@ -203,7 +205,7 @@ describe("splitFilePathSegments", () => {
     const result = splitFilePathSegments("(src/foo.ts)", null);
     expect(result).toEqual<ReadonlyArray<Segment>>([
       { kind: "text", value: "(" },
-      { kind: "path", value: "src/foo.ts", navPath: "src/foo.ts" },
+      { kind: "path", value: "src/foo.ts", navPath: "src/foo.ts", lineNumber: null },
       { kind: "text", value: ")" },
     ]);
   });
@@ -212,15 +214,15 @@ describe("splitFilePathSegments", () => {
     const result = splitFilePathSegments("src/a.py, src/b.py", null);
     const pathSegments = result.filter((s) => s.kind === "path");
     expect(pathSegments).toHaveLength(2);
-    expect(pathSegments[0]).toEqual({ kind: "path", value: "src/a.py", navPath: "src/a.py" });
-    expect(pathSegments[1]).toEqual({ kind: "path", value: "src/b.py", navPath: "src/b.py" });
+    expect(pathSegments[0]).toEqual({ kind: "path", value: "src/a.py", navPath: "src/a.py", lineNumber: null });
+    expect(pathSegments[1]).toEqual({ kind: "path", value: "src/b.py", navPath: "src/b.py", lineNumber: null });
   });
 
   it("resolves absolute paths with workspace prefix", () => {
     const result = splitFilePathSegments("Edited /ws/code/src/a.ts", "/ws/code");
     expect(result).toEqual<ReadonlyArray<Segment>>([
       { kind: "text", value: "Edited " },
-      { kind: "path", value: "/ws/code/src/a.ts", navPath: "src/a.ts" },
+      { kind: "path", value: "/ws/code/src/a.ts", navPath: "src/a.ts", lineNumber: null },
     ]);
   });
 
@@ -244,7 +246,7 @@ describe("splitFilePathSegments", () => {
     const result = splitFilePathSegments("See /ws/code/src/file.py", "/ws/code");
     expect(result).toEqual<ReadonlyArray<Segment>>([
       { kind: "text", value: "See " },
-      { kind: "path", value: "/ws/code/src/file.py", navPath: "src/file.py" },
+      { kind: "path", value: "/ws/code/src/file.py", navPath: "src/file.py", lineNumber: null },
     ]);
   });
 
@@ -281,7 +283,7 @@ describe("splitFilePathSegments", () => {
     const result = splitFilePathSegments("[src/foo.ts]", null);
     expect(result).toEqual<ReadonlyArray<Segment>>([
       { kind: "text", value: "[" },
-      { kind: "path", value: "src/foo.ts", navPath: "src/foo.ts" },
+      { kind: "path", value: "src/foo.ts", navPath: "src/foo.ts", lineNumber: null },
       { kind: "text", value: "]" },
     ]);
   });
@@ -310,13 +312,13 @@ describe("splitFilePathSegments", () => {
 
   it("detects a path at the very start of the string", () => {
     const result = splitFilePathSegments("src/index.ts was updated", null);
-    expect(result[0]).toEqual({ kind: "path", value: "src/index.ts", navPath: "src/index.ts" });
+    expect(result[0]).toEqual({ kind: "path", value: "src/index.ts", navPath: "src/index.ts", lineNumber: null });
   });
 
   it("detects a path at the very end of the string", () => {
     const result = splitFilePathSegments("Updated src/index.ts", null);
     const last = result[result.length - 1];
-    expect(last).toEqual({ kind: "path", value: "src/index.ts", navPath: "src/index.ts" });
+    expect(last).toEqual({ kind: "path", value: "src/index.ts", navPath: "src/index.ts", lineNumber: null });
   });
 
   it("detects paths with dotfile directories", () => {
@@ -330,7 +332,12 @@ describe("splitFilePathSegments", () => {
     const result = splitFilePathSegments("See /ws/code/src/a.py and /etc/config.yaml", "/ws/code");
     const pathSegments = result.filter((s) => s.kind === "path");
     expect(pathSegments).toHaveLength(1);
-    expect(pathSegments[0]).toEqual({ kind: "path", value: "/ws/code/src/a.py", navPath: "src/a.py" });
+    expect(pathSegments[0]).toEqual({
+      kind: "path",
+      value: "/ws/code/src/a.py",
+      navPath: "src/a.py",
+      lineNumber: null,
+    });
     // The out-of-workspace path should be plain text
     const textSegments = result.filter((s) => s.kind === "text");
     expect(textSegments.some((s) => s.value.includes("/etc/config.yaml"))).toBe(true);
@@ -340,7 +347,7 @@ describe("splitFilePathSegments", () => {
     const result = splitFilePathSegments("See /ws/code/src/a.ts:42", "/ws/code");
     expect(result).toEqual<ReadonlyArray<Segment>>([
       { kind: "text", value: "See " },
-      { kind: "path", value: "/ws/code/src/a.ts:42", navPath: "src/a.ts" },
+      { kind: "path", value: "/ws/code/src/a.ts:42", navPath: "src/a.ts", lineNumber: 42 },
     ]);
   });
 });

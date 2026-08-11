@@ -115,9 +115,18 @@ type ReadOnlyPreviewProps = {
    *  the quick-open-rendered-markdown path so one explicit open never rewrites
    *  the preference itself. */
   renderModeOverride?: MarkdownRenderMode;
+  /** 1-based line to highlight in the source view, from a `foo.ts:42` style
+   *  link. The view does not scroll to it yet — Pierre's `<File>` exposes no
+   *  scroll API — so this marks the line for a reader who is already near it. */
+  highlightLine?: number;
 };
 
-export const ReadOnlyPreview = ({ workspaceId, filePath, renderModeOverride }: ReadOnlyPreviewProps): ReactElement => {
+export const ReadOnlyPreview = ({
+  workspaceId,
+  filePath,
+  renderModeOverride,
+  highlightLine,
+}: ReadOnlyPreviewProps): ReactElement => {
   const { data: content, isPending, isError: hasError } = useWorkspaceFileContent(workspaceId, filePath, null);
   const overflow = useAtomValue(fileBrowserLineWrappingAtom);
   const appTheme = useAtomValue(appThemeAtom);
@@ -169,6 +178,14 @@ export const ReadOnlyPreview = ({ workspaceId, filePath, renderModeOverride }: R
     if (content == null) return null;
     return { name: fileName, contents: content, lang };
   }, [content, fileName, lang]);
+
+  // A single-line range: Pierre highlights a selection, and the "line" a link
+  // named is a one-line selection of it. Memoized because a fresh object each
+  // render would re-run Pierre's selection handling on every unrelated render.
+  const selectedLines = useMemo(
+    () => (highlightLine === undefined ? null : { start: highlightLine, end: highlightLine }),
+    [highlightLine],
+  );
 
   // Split frontmatter off the body only when the markdown is actually being
   // rendered, and memoize it so unrelated re-renders (theme, panel resize,
@@ -281,7 +298,7 @@ export const ReadOnlyPreview = ({ workspaceId, filePath, renderModeOverride }: R
     <div className={styles.wrapper} data-testid={ElementIds.READ_ONLY_PREVIEW}>
       <div ref={containerRef} className={styles.container}>
         <div ref={pierreRef}>
-          <PierreFile file={fileContents} options={fileOptions} />
+          <PierreFile file={fileContents} options={fileOptions} selectedLines={selectedLines} />
         </div>
       </div>
       <VerticalOverlayScrollbar scrollRef={containerRef} thumbTestId={ElementIds.READ_ONLY_PREVIEW_SCROLLBAR_THUMB} />

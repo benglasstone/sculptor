@@ -27,6 +27,11 @@ export type FileViewTab = {
    *  without rewriting the user's global render-mode preference — until the
    *  user toggles the mode. */
   markdownMode?: "rendered";
+  /** 1-based line the open named (e.g. a `foo.ts:42` link in terminal output),
+   *  highlighted in the source view. Deliberately NOT part of `filePath`, the
+   *  tab identity: re-opening the same file at another line must move within
+   *  the open tab rather than create a second one. */
+  lineNumber?: number;
 };
 
 export type CommitFileDiffTab = {

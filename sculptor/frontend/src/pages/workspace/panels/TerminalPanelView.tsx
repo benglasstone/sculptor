@@ -35,8 +35,8 @@ export const TerminalPanelView = ({ workspaceId, index }: { workspaceId: string;
   const workspaceCodePath = useWorkspaceCodePath(workspaceId);
   const openFileViewTab = useSetAtom(openFileViewTabAtom);
   const handleFilePathActivate = useCallback(
-    (navPath: string): void => {
-      openFileViewTab({ workspaceId, filePath: navPath });
+    (navPath: string, lineNumber: number | null): void => {
+      openFileViewTab({ workspaceId, filePath: navPath, lineNumber: lineNumber ?? undefined });
     },
     [openFileViewTab, workspaceId],
   );

@@ -35,6 +35,9 @@ export type DiffSelection =
       /** When the request above was made; a repeat request (same file, newer
        *  timestamp) re-applies a previously dismissed render-mode override. */
       openedAt?: number;
+      /** 1-based line to highlight in the source view, from a `foo.ts:42`
+       *  style link. */
+      lineNumber?: number;
     }
   | {
       /** A single file's diff within a specific commit. */

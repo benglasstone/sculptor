@@ -439,6 +439,7 @@ export const DiffViewer = ({
               workspaceId={workspaceId}
               filePath={content.filePath}
               renderModeOverride={isQuickOpenRenderActive ? "rendered" : undefined}
+              highlightLine={selection?.kind === "file-view" ? selection.lineNumber : undefined}
             />
           </Flex>
         </>

@@ -33,9 +33,9 @@ export const AgentTerminalPanel = ({ taskId }: AgentTerminalPanelProps): ReactEl
   const workspaceCodePath = useWorkspaceCodePath(workspaceId ?? "");
   const openFileViewTab = useSetAtom(openFileViewTabAtom);
   const handleFilePathActivate = useCallback(
-    (navPath: string): void => {
+    (navPath: string, lineNumber: number | null): void => {
       if (workspaceId === undefined) return;
-      openFileViewTab({ workspaceId, filePath: navPath });
+      openFileViewTab({ workspaceId, filePath: navPath, lineNumber: lineNumber ?? undefined });
     },
     [openFileViewTab, workspaceId],
   );

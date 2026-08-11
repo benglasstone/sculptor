@@ -55,10 +55,27 @@ const FILE_PATH_ANCHORED = new RegExp(`^${PATH_PATTERN}$`);
 
 export type Segment =
   | { readonly kind: "text"; readonly value: string }
-  | { readonly kind: "path"; readonly value: string; readonly navPath: string };
+  | {
+      readonly kind: "path";
+      readonly value: string;
+      readonly navPath: string;
+      /** The `:<digits>` suffix as a number, or null when the path had none. */
+      readonly lineNumber: number | null;
+    };
 
 /** Strip a trailing `:<digits>` line-number suffix from a path. */
 export const stripLineNumber = (path: string): string => path.replace(/:\d+$/, "");
+
+/** The `:<digits>` suffix of a path as a number, or null when it has none.
+ *
+ * Files are 1-based, so `:0` reads as "no line" rather than a target the
+ * viewer could never highlight. */
+export const parseLineNumber = (path: string): number | null => {
+  const match = /:(\d+)$/.exec(path);
+  if (match === null) return null;
+  const lineNumber = Number(match[1]);
+  return lineNumber > 0 ? lineNumber : null;
+};
 
 /**
  * Resolve a raw file path to a navigation path suitable for the diff viewer.
@@ -142,6 +159,7 @@ export const splitFilePathSegments = (text: string, workspaceCodePath: string | 
       kind: "path",
       value: matchedPath,
       navPath: resolveNavPath(matchedPath, workspaceCodePath),
+      lineNumber: parseLineNumber(matchedPath),
     });
 
     lastIndex = matchStart + matchedPath.length;

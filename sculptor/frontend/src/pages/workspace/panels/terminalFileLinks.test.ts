@@ -21,7 +21,7 @@ describe("findFilePathMatches", () => {
   it("returns the 1-based inclusive column range of a path", () => {
     // "see " is 4 characters, so the path starts at column 5.
     const [match] = findFilePathMatches("see src/main.ts here", WORKSPACE);
-    expect(match).toEqual({ navPath: "src/main.ts", startColumn: 5, endColumn: 15 });
+    expect(match).toEqual({ navPath: "src/main.ts", lineNumber: null, startColumn: 5, endColumn: 15 });
   });
 
   it("finds a path at the very start of a line", () => {
@@ -41,6 +41,13 @@ describe("findFilePathMatches", () => {
     expect(match.navPath).toBe("src/main.ts");
     // The clickable region still covers the ":42" the user sees.
     expect(match.endColumn).toBe(14);
+  });
+
+  it("reports the line a path named, so the viewer can highlight it", () => {
+    expect(findFilePathMatches("src/main.ts:42", WORKSPACE)[0].lineNumber).toBe(42);
+    expect(findFilePathMatches("src/main.ts", WORKSPACE)[0].lineNumber).toBeNull();
+    // Files are 1-based, so :0 names no line the viewer could highlight.
+    expect(findFilePathMatches("src/main.ts:0", WORKSPACE)[0].lineNumber).toBeNull();
   });
 
   it("makes an absolute in-workspace path workspace-relative", () => {
@@ -104,7 +111,13 @@ describe("createFilePathLinkProvider", () => {
     const { links, onActivate } = provideLinksFor("see src/main.ts here");
     // jsdom reports a non-Mac platform, so Ctrl is the modifier here.
     links[0].activate(new MouseEvent("click", { ctrlKey: true }), "src/main.ts");
-    expect(onActivate).toHaveBeenCalledWith("src/main.ts");
+    expect(onActivate).toHaveBeenCalledWith("src/main.ts", null);
+  });
+
+  it("passes the named line to the opener", () => {
+    const { links, onActivate } = provideLinksFor("see src/main.ts:42 here");
+    links[0].activate(new MouseEvent("click", { ctrlKey: true }), "src/main.ts");
+    expect(onActivate).toHaveBeenCalledWith("src/main.ts", 42);
   });
 
   it("shows a hover hint naming the modifier, and removes it on leave", () => {

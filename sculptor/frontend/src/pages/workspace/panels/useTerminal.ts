@@ -344,7 +344,7 @@ type UseTerminalArgs = {
   focusOnVisible?: boolean;
   /** Opens a workspace file path ctrl/cmd-clicked in the terminal. Omit to
    *  leave paths as plain text (the pre-existing behavior). */
-  onFilePathActivate?: (navPath: string) => void;
+  onFilePathActivate?: (navPath: string, lineNumber: number | null) => void;
   /** Absolute path of the workspace clone, used to reject paths outside it.
    *  Only read when `onFilePathActivate` is set. */
   workspaceCodePath?: string | null;
@@ -496,7 +496,7 @@ export const useTerminal = ({
             get workspaceCodePath() {
               return workspaceCodePathRef.current;
             },
-            onActivate: (navPath) => onFilePathActivateRef.current?.(navPath),
+            onActivate: (navPath, lineNumber) => onFilePathActivateRef.current?.(navPath, lineNumber),
             hintContainer: container,
           }),
         );
