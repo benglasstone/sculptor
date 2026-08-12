@@ -5,18 +5,12 @@ import { useEffect, useMemo } from "react";
 
 import { ElementIds } from "~/api";
 import type { RecentDiffFile } from "~/pages/workspace/components/diffPanel/atoms.ts";
-import {
-  getRecentDiffFilesAtom,
-  openCommitDiffTabAtom,
-  openDiffTabAtom,
-  openFileViewTabAtom,
-  recordRecentDiffFileAtom,
-} from "~/pages/workspace/components/diffPanel/atoms.ts";
+import { getRecentDiffFilesAtom, recordRecentDiffFileAtom } from "~/pages/workspace/components/diffPanel/atoms.ts";
 import type { DiffScope } from "~/pages/workspace/components/diffPanel/types.ts";
-import { changesScopeAtomFamily } from "~/pages/workspace/panels/fileBrowser/atoms.ts";
 import type { FileStatus } from "~/pages/workspace/panels/fileBrowser/types.ts";
 
 import styles from "./FilePathSelect.module.scss";
+import { useOpenRecentFile } from "./useOpenRecentFile.ts";
 
 /**
  * Which panel's recents this header feeds and reads. Each panel keeps its own
@@ -62,10 +56,7 @@ export const FilePathSelect = ({ workspaceId, filePath, recentFilesScope }: File
   const scope = recentFilesScope.panel === "changes" ? recentFilesScope.scope : undefined;
   const recentFiles = useAtomValue(getRecentDiffFilesAtom(workspaceId, panel));
   const recordRecentFile = useSetAtom(recordRecentDiffFileAtom);
-  const openDiff = useSetAtom(openDiffTabAtom);
-  const openFileView = useSetAtom(openFileViewTabAtom);
-  const openCommitDiff = useSetAtom(openCommitDiffTabAtom);
-  const setChangesScope = useSetAtom(changesScopeAtomFamily(workspaceId));
+  const openRecentFile = useOpenRecentFile(workspaceId, recentFilesScope);
 
   // effects
   // Every file the header shows counts as "recently viewed" in this panel.
@@ -79,18 +70,7 @@ export const FilePathSelect = ({ workspaceId, filePath, recentFilesScope }: File
     if (entry === undefined) {
       return;
     }
-
-    if (panel === "files") {
-      openFileView({ workspaceId, filePath: entry.path });
-    } else if (panel === "changes") {
-      // A Changes recent carries the scope it was viewed under; re-point the
-      // panel's scope picker at it so the picker, tree, and viewer all reference
-      // the same base (an undefined scope means the uncommitted diff).
-      setChangesScope(entry.scope ?? "uncommitted");
-      openDiff({ workspaceId, filePath: entry.path, status: entry.status ?? "M", scope: entry.scope });
-    } else if (entry.commitHash !== undefined) {
-      openCommitDiff({ workspaceId, commitHash: entry.commitHash, filePath: entry.path });
-    }
+    openRecentFile(entry);
   };
 
   // JSX and rendering logic

@@ -17,9 +17,11 @@ import { invalidateWorkspaceCommitDiff, useWorkspaceCommitDiff } from "~/common/
 import { useForceRefreshWorkspaceDiff } from "~/common/state/hooks/useWorkspaceDiff.ts";
 import { getLineCounts, parseDiff } from "~/components/DiffUtils.ts";
 import { IndeterminateProgress } from "~/components/IndeterminateProgress.tsx";
-import type { MarkdownRenderMode } from "~/pages/workspace/components/diffPanel/atoms.ts";
+import type { MarkdownRenderMode, RecentDiffFile } from "~/pages/workspace/components/diffPanel/atoms.ts";
 import {
   closeDiffTabAtom,
+  forgetRecentDiffFileAtom,
+  getRecentDiffFilesAtom,
   isMermaidPath,
   isRenderablePath,
   markdownRenderModeAtom,
@@ -45,6 +47,7 @@ import { DiffViewerMenu } from "./DiffViewerMenu.tsx";
 import type { RecentFilesScope } from "./FilePathSelect.tsx";
 import type { DiffSelection, DiffViewOptions, TreeViewOptions } from "./types.ts";
 import { useDiffViewerContent } from "./useDiffViewerContent.ts";
+import { useOpenRecentFile } from "./useOpenRecentFile.ts";
 
 // Wait this long before showing the top progress bar; fetches that finish
 // faster than this never flash it, which avoids flicker on quick diffs.
@@ -298,18 +301,6 @@ export const DiffViewer = ({
     void refreshWorkspaceDiff();
   }, [content.isFileView, content.isCommitDiff, content.commitHash, workspaceId, refreshWorkspaceDiff]);
 
-  // Close the open file — from the header's X, or from the deleted-file banner's
-  // dismiss. Clears the shared diff tab by its IDENTITY path (which carries a
-  // scope prefix for "All"-scope diffs, so the real path would never match) AND
-  // the host panel's local click selection, so the close lands whichever of the
-  // two sources drove the view. Clearing only one leaves the other winning the
-  // panel's recency reconcile, and the file springs back.
-  const handleCloseFile = useCallback((): void => {
-    const tabId = content.tabFilePath ?? content.filePath;
-    if (tabId !== null) closeDiffTab({ workspaceId, filePath: tabId });
-    if (content.filePath !== null) onCloseFile?.(content.filePath);
-  }, [closeDiffTab, workspaceId, content.tabFilePath, content.filePath, onCloseFile]);
-
   // The find shortcut is a window-level listener, and several viewers can be
   // mounted at once (one per Files / Changes / Commits panel in the section
   // grid). Only the viewer inside the active section responds, so a single
@@ -350,6 +341,55 @@ export const DiffViewer = ({
       scope: content.isTargetBranchDiff ? "vs-target-branch" : "uncommitted",
     };
   }, [content.isFileView, content.isCommitDiff, content.commitHash, content.status, content.isTargetBranchDiff]);
+
+  const recentFiles = useAtomValue(getRecentDiffFilesAtom(workspaceId, recentFilesScope.panel));
+  const forgetRecentFile = useSetAtom(forgetRecentDiffFileAtom);
+  const openRecentFile = useOpenRecentFile(workspaceId, recentFilesScope);
+
+  // Close the open file — from the header's X, or from the deleted-file banner's
+  // dismiss. Clears the shared diff tab by its IDENTITY path (which carries a
+  // scope prefix for "All"-scope diffs, so the real path would never match) AND
+  // the host panel's local click selection, so the close lands whichever of the
+  // two sources drove the view. Clearing only one leaves the other winning the
+  // panel's recency reconcile, and the file springs back.
+  //
+  // The viewer then falls back to the next recently-viewed file rather than
+  // going empty. The empty header drops the path dropdown, so emptying the
+  // viewer would also hide the only route back to the other files this panel
+  // has open — closing one file would strand the rest.
+  const handleCloseFile = useCallback((): void => {
+    const closedPath = content.filePath;
+    const tabId = content.tabFilePath ?? closedPath;
+    if (tabId !== null) closeDiffTab({ workspaceId, filePath: tabId });
+    if (closedPath === null) return;
+    onCloseFile?.(closedPath);
+
+    const closedCommitHash = content.isCommitDiff ? (content.commitHash ?? undefined) : undefined;
+    const isClosedFile = (candidate: RecentDiffFile): boolean =>
+      candidate.path === closedPath && candidate.commitHash === closedCommitHash;
+
+    forgetRecentFile({
+      workspaceId,
+      panel: recentFilesScope.panel,
+      entry: { path: closedPath, commitHash: closedCommitHash },
+    });
+    // `recentFiles` is this render's list, so the just-closed file is still in
+    // it — skip it rather than re-opening what was asked to be closed.
+    const nextFile = recentFiles.find((candidate) => !isClosedFile(candidate));
+    if (nextFile !== undefined) openRecentFile(nextFile);
+  }, [
+    closeDiffTab,
+    workspaceId,
+    content.tabFilePath,
+    content.filePath,
+    content.isCommitDiff,
+    content.commitHash,
+    onCloseFile,
+    recentFiles,
+    recentFilesScope.panel,
+    forgetRecentFile,
+    openRecentFile,
+  ]);
 
   const renderDiffBody = (): ReactElement => {
     const { filePath, errorMessage, isBinary, status, diffString, previousFilePath } = content;
@@ -440,6 +480,7 @@ export const DiffViewer = ({
               filePath={content.filePath}
               renderModeOverride={isQuickOpenRenderActive ? "rendered" : undefined}
               highlightLine={selection?.kind === "file-view" ? selection.lineNumber : undefined}
+              highlightRequestedAt={selection?.kind === "file-view" ? selection.openedAt : undefined}
             />
           </Flex>
         </>

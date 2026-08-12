@@ -173,6 +173,29 @@ export const recordRecentDiffFileAtom = atom(
   },
 );
 
+/** Drop a file from a panel's recently-viewed list.
+ *
+ * Closing a file removes it here as well as from the viewer. The list doubles
+ * as the header dropdown's "other files" menu, so a closed file that stayed in
+ * it would be offered as the next file to fall back to — and closing would
+ * cycle between the same files instead of eventually emptying the viewer. */
+export const forgetRecentDiffFileAtom = atom(
+  null,
+  (
+    get,
+    set,
+    { workspaceId, panel, entry }: { workspaceId: string; panel: RecentFilesPanel; entry: RecentDiffFile },
+  ) => {
+    const listAtom = getRecentDiffFilesAtom(workspaceId, panel);
+    set(
+      listAtom,
+      get(listAtom).filter(
+        (candidate) => !(candidate.path === entry.path && candidate.commitHash === entry.commitHash),
+      ),
+    );
+  },
+);
+
 export const isMarkdownPath = (filePath: string): boolean => /\.(md|markdown)$/i.test(filePath);
 
 /** A standalone Mermaid diagram file — the whole file is one diagram source. */

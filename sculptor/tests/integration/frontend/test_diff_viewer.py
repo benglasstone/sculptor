@@ -910,6 +910,39 @@ def test_close_button_empties_the_viewer(sculptor_instance_: SculptorInstance) -
     expect(viewer.get_read_only_preview()).to_be_visible()
 
 
+@user_story("to land on another open file when I close one, instead of an empty viewer")
+def test_close_falls_back_to_the_next_recent_file(sculptor_instance_: SculptorInstance) -> None:
+    """Closing a file opens the next recently-viewed one in the same panel.
+
+    The empty viewer's header has no path dropdown, so emptying it on close
+    also hides the only route back to the panel's other files. Closing the
+    last one still empties the viewer -- a closed file must not be offered as
+    the fallback, or closing could never reach the empty state.
+    """
+    page = sculptor_instance_.page
+
+    task_page = start_task_and_wait_for_ready(page, prompt=_WRITE_MD_AND_PY_PROMPT)
+    chat_panel = task_page.get_chat_panel()
+    wait_for_completed_message_count(chat_panel=chat_panel, expected_message_count=2)
+
+    section_root = open_panel(page, "files", sub_section="center")
+    files_panel = get_files_panel_in(section_root, page)
+    files_panel.open_file("notes.md")
+    viewer = files_panel.open_file("main.py")
+    expect(viewer.get_file_path_select()).to_contain_text("main.py")
+
+    viewer.get_close_file_button().click()
+
+    # Falls back to the other file rather than the empty state.
+    expect(viewer.get_file_path_select()).to_contain_text("notes.md")
+    expect(viewer.get_empty_body()).to_have_count(0)
+
+    viewer.get_close_file_button().click()
+
+    # Nothing left to fall back to: the closed files are gone from the list.
+    expect(viewer.get_empty_body()).to_be_visible()
+
+
 # --------------------------------------------------------------------------- #
 # Markdown render toggle
 # --------------------------------------------------------------------------- #

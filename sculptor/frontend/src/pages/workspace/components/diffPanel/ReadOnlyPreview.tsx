@@ -33,6 +33,7 @@ import {
 import styles from "./ReadOnlyPreview.module.scss";
 import { StickyHorizontalScrollbar } from "./StickyHorizontalScrollbar.tsx";
 import { usePierreHighlighterReady } from "./usePierreHighlighterReady.ts";
+import { useScrollToLine } from "./useScrollToLine.ts";
 
 // react-markdown hands its components map a renderer-internal `node` prop
 // alongside the regular HTML attributes. We deliberately destructure only
@@ -115,10 +116,11 @@ type ReadOnlyPreviewProps = {
    *  the quick-open-rendered-markdown path so one explicit open never rewrites
    *  the preference itself. */
   renderModeOverride?: MarkdownRenderMode;
-  /** 1-based line to highlight in the source view, from a `foo.ts:42` style
-   *  link. The view does not scroll to it yet — Pierre's `<File>` exposes no
-   *  scroll API — so this marks the line for a reader who is already near it. */
+  /** 1-based line to highlight and scroll to, from a `foo.ts:42` style link. */
   highlightLine?: number;
+  /** When that line was requested. A repeat click on the same link produces the
+   *  same line with a newer timestamp, which must scroll again. */
+  highlightRequestedAt?: number;
 };
 
 export const ReadOnlyPreview = ({
@@ -126,6 +128,7 @@ export const ReadOnlyPreview = ({
   filePath,
   renderModeOverride,
   highlightLine,
+  highlightRequestedAt,
 }: ReadOnlyPreviewProps): ReactElement => {
   const { data: content, isPending, isError: hasError } = useWorkspaceFileContent(workspaceId, filePath, null);
   const overflow = useAtomValue(fileBrowserLineWrappingAtom);
@@ -147,6 +150,17 @@ export const ReadOnlyPreview = ({
   const shouldRenderMarkdown = isMarkdownPath(filePath) && isRendered;
   // A `.mmd` file is a single diagram source — no markdown wrapper around it.
   const shouldRenderDiagram = isMermaidPath(filePath) && isRendered;
+
+  // Scroll to the line a `foo.ts:42` link named, once Pierre has rendered it.
+  // Only the source view has lines to scroll to: a rendered markdown or diagram
+  // view has no line rows, so the request is dropped rather than left hunting
+  // for an element that will never appear.
+  useScrollToLine({
+    contentRef: pierreRef,
+    scrollRef: containerRef,
+    lineNumber: shouldRenderMarkdown || shouldRenderDiagram ? undefined : highlightLine,
+    requestedAt: highlightRequestedAt,
+  });
 
   // Inject our override stylesheet into Pierre's shadow DOM (see
   // adoptPierreOverrideSheet for why this is a layout effect). The container
