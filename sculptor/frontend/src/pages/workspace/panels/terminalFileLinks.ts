@@ -52,6 +52,16 @@ type LinkProviderOptions = {
   /** Called with the workspace-relative path, and the line the path named
    *  (null when it named none), when a link is activated. */
   onActivate: (navPath: string, lineNumber: number | null) => void;
+  /** Whether a path is a real file in the workspace.
+   *
+   * Detection is pattern-matching, so anything path-shaped matches — including
+   * the tail of a path the TUI broke across rows, which yields a plausible but
+   * non-existent path (`nts/diffPanel/useScrollToLine.ts` from a wrapped
+   * `.../components/diffPanel/useScrollToLine.ts`). Linking that offers a
+   * click that can only fail, so a candidate becomes a link only if it
+   * resolves. Returning false for everything (e.g. while the file list loads)
+   * means no links rather than wrong ones. */
+  isKnownFile: (navPath: string) => boolean;
   /** Host for the hover hint. Omit to skip the hint (e.g. in unit tests, where
    *  there is no laid-out terminal to position it against). */
   hintContainer?: HTMLElement | null;
@@ -103,6 +113,7 @@ export const createFilePathLinkProvider = ({
   terminal,
   workspaceCodePath,
   onActivate,
+  isKnownFile,
   hintContainer,
 }: LinkProviderOptions): ILinkProvider => {
   const hint = hintContainer ? createHoverHint(hintContainer) : null;
@@ -115,7 +126,7 @@ export const createFilePathLinkProvider = ({
         return;
       }
       const text = line.translateToString(true);
-      const matches = findFilePathMatches(text, workspaceCodePath);
+      const matches = findFilePathMatches(text, workspaceCodePath).filter((match) => isKnownFile(match.navPath));
       if (matches.length === 0) {
         callback(undefined);
         return;

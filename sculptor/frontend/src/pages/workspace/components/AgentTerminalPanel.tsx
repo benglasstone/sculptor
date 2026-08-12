@@ -7,6 +7,7 @@ import { useTaskWorkspaceId } from "~/common/state/hooks/useTaskHelpers.ts";
 import { openFileViewTabAtom } from "~/pages/workspace/components/diffPanel/atoms.ts";
 import { useWorkspaceCodePath } from "~/pages/workspace/hooks/useWorkspaceCodePath.ts";
 
+import { useIsKnownWorkspaceFile } from "../panels/useIsKnownWorkspaceFile.ts";
 import { useTerminal } from "../panels/useTerminal";
 import styles from "./AgentTerminalPanel.module.scss";
 import { useTerminalChatActions } from "./useTerminalChatActions.ts";
@@ -31,6 +32,7 @@ export const AgentTerminalPanel = ({ taskId }: AgentTerminalPanelProps): ReactEl
   // opens it in the file viewer, matching the chat surface's path links.
   const workspaceId = useTaskWorkspaceId(taskId);
   const workspaceCodePath = useWorkspaceCodePath(workspaceId ?? "");
+  const isKnownFile = useIsKnownWorkspaceFile(workspaceId ?? null);
   const openFileViewTab = useSetAtom(openFileViewTabAtom);
   const handleFilePathActivate = useCallback(
     (navPath: string, lineNumber: number | null): void => {
@@ -47,6 +49,7 @@ export const AgentTerminalPanel = ({ taskId }: AgentTerminalPanelProps): ReactEl
     lineHeight: 1.1,
     onFilePathActivate: handleFilePathActivate,
     workspaceCodePath,
+    isKnownFile,
     // The terminal is this agent's only input surface and the pane remounts
     // on every tab switch, so it must take keyboard focus immediately (SCU-1578).
     focusOnVisible: true,

@@ -72,11 +72,13 @@ describe("createFilePathLinkProvider", () => {
   const provideLinksFor = (
     line: string,
     onActivate = vi.fn(),
+    isKnownFile: (navPath: string) => boolean = () => true,
   ): { links: Array<ILink>; onActivate: ReturnType<typeof vi.fn> } => {
     const provider = createFilePathLinkProvider({
       terminal: fakeTerminal([line]),
       workspaceCodePath: WORKSPACE,
       onActivate,
+      isKnownFile,
     });
     const callback = vi.fn();
     // xterm addresses rows 1-based.
@@ -101,6 +103,7 @@ describe("createFilePathLinkProvider", () => {
       terminal: fakeTerminal(["src/main.ts"]),
       workspaceCodePath: WORKSPACE,
       onActivate: vi.fn(),
+      isKnownFile: () => true,
     });
     const callback = vi.fn();
     provider.provideLinks(99, callback);
@@ -126,6 +129,7 @@ describe("createFilePathLinkProvider", () => {
       terminal: fakeTerminal(["see src/main.ts here"]),
       workspaceCodePath: WORKSPACE,
       onActivate: vi.fn(),
+      isKnownFile: () => true,
       hintContainer: container,
     });
     const callback = vi.fn();
@@ -148,6 +152,7 @@ describe("createFilePathLinkProvider", () => {
       terminal: fakeTerminal(["see src/main.ts here"]),
       workspaceCodePath: WORKSPACE,
       onActivate: vi.fn(),
+      isKnownFile: () => true,
       hintContainer: container,
     });
     const callback = vi.fn();
@@ -160,6 +165,28 @@ describe("createFilePathLinkProvider", () => {
     // The file view takes over the screen; a stranded hint would hang around
     // over whatever is under the pointer afterwards.
     expect(container.textContent).toBe("");
+  });
+
+  // Detection is pattern-matching, so path-shaped text that is not a file still
+  // matches. The worst case comes from a TUI that hard-wraps a long path: the
+  // tail row alone looks like a path and would offer a click that opens nothing.
+  it("does not link path-shaped text that is not a file in the workspace", () => {
+    const { links } = provideLinksFor("  nts/diffPanel/useScrollToLine.ts here", vi.fn(), () => false);
+    expect(links).toBeUndefined();
+  });
+
+  it("links only the candidates that resolve", () => {
+    const isKnownFile = (navPath: string): boolean => navPath === "src/real.ts";
+    const { links } = provideLinksFor("src/real.ts and src/imaginary.ts", vi.fn(), isKnownFile);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe("src/real.ts");
+  });
+
+  it("offers nothing while the file list is still loading", () => {
+    // The predicate reports false for everything until the list arrives; no
+    // links is the right answer then, since a link that cannot open is worse.
+    const { links } = provideLinksFor("see src/main.ts here", vi.fn(), () => false);
+    expect(links).toBeUndefined();
   });
 
   it("ignores a plain click, leaving click-drag selection alone", () => {

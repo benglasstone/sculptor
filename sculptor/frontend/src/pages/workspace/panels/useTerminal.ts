@@ -348,6 +348,9 @@ type UseTerminalArgs = {
   /** Absolute path of the workspace clone, used to reject paths outside it.
    *  Only read when `onFilePathActivate` is set. */
   workspaceCodePath?: string | null;
+  /** Whether a workspace-relative path is a real file. Only path-shaped text
+   *  that resolves becomes a link; see `isKnownFile` in terminalFileLinks. */
+  isKnownFile?: (navPath: string) => boolean;
 };
 
 type UseTerminalResult = {
@@ -364,6 +367,7 @@ export const useTerminal = ({
   focusOnVisible = false,
   onFilePathActivate,
   workspaceCodePath = null,
+  isKnownFile,
 }: UseTerminalArgs): UseTerminalResult => {
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -400,6 +404,13 @@ export const useTerminal = ({
   const workspaceCodePathRef = useRef(workspaceCodePath);
   useEffect(() => {
     workspaceCodePathRef.current = workspaceCodePath;
+  });
+  // The file list arrives after the terminal mounts and changes as the agent
+  // writes files, so the provider reads the current predicate per hover rather
+  // than closing over the one that existed at mount.
+  const isKnownFileRef = useRef(isKnownFile);
+  useEffect(() => {
+    isKnownFileRef.current = isKnownFile;
   });
 
   const appTheme = useResolvedTheme();
@@ -497,6 +508,7 @@ export const useTerminal = ({
               return workspaceCodePathRef.current;
             },
             onActivate: (navPath, lineNumber) => onFilePathActivateRef.current?.(navPath, lineNumber),
+            isKnownFile: (navPath) => isKnownFileRef.current?.(navPath) ?? false,
             hintContainer: container,
           }),
         );

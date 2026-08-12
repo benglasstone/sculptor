@@ -16,6 +16,7 @@ import { openFileViewTabAtom } from "~/pages/workspace/components/diffPanel/atom
 import { useWorkspaceCodePath } from "~/pages/workspace/hooks/useWorkspaceCodePath.ts";
 
 import styles from "./TerminalPanelView.module.scss";
+import { useIsKnownWorkspaceFile } from "./useIsKnownWorkspaceFile.ts";
 import type { TerminalConnectionStatus } from "./useTerminal.ts";
 import { useTerminal } from "./useTerminal.ts";
 
@@ -33,6 +34,7 @@ export const TerminalPanelView = ({ workspaceId, index }: { workspaceId: string;
   // file viewer — the terminal counterpart of the clickable paths in chat, and
   // the only way to reach a file an agent names when the agent IS the terminal.
   const workspaceCodePath = useWorkspaceCodePath(workspaceId);
+  const isKnownFile = useIsKnownWorkspaceFile(workspaceId);
   const openFileViewTab = useSetAtom(openFileViewTabAtom);
   const handleFilePathActivate = useCallback(
     (navPath: string, lineNumber: number | null): void => {
@@ -49,6 +51,7 @@ export const TerminalPanelView = ({ workspaceId, index }: { workspaceId: string;
     onConnectionStatusChange: handleConnectionStatusChange,
     onFilePathActivate: handleFilePathActivate,
     workspaceCodePath,
+    isKnownFile,
   });
 
   // Forget this terminal's connection status on unmount. useTerminal deliberately
