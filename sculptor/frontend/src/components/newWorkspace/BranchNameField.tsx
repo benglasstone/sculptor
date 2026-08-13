@@ -21,8 +21,9 @@ type BranchNameFieldProps = {
   status: BranchNameStatus;
   /** Called whenever the user types into the input (already sanitized). */
   onUserEdit: (value: string) => void;
-  /** Called when the user clicks the shuffle button to re-roll the name. */
-  onShuffle: () => void;
+  /** Re-rolls an auto-generated name. Omit when names are not generated — the
+   *  shuffle button is then hidden, since there is nothing to re-roll. */
+  onShuffle?: () => void;
   disabled?: boolean;
   /**
    * Visual style. "chip" (default) is the bordered pill used in the breadcrumb
@@ -54,7 +55,10 @@ export const BranchNameField = ({
     return undefined;
   }
 
-  const placeholder = mode === Strategy.WORKTREE ? "Branch name (required)" : "Branch name (optional)";
+  // Empty is a real choice: the workspace then works on the source branch
+  // itself rather than branching off it, so the placeholder says what leaving
+  // it blank does rather than calling the field optional.
+  const placeholder = "New branch (blank = work on the selected branch)";
   // The as-you-type sanitizer keeps most illegal characters out of `value`, so
   // "invalid" only fires on the residue it deliberately lets through (trailing
   // '.' or '/', a '.lock' suffix) — see sanitizeBranchName.ts.
@@ -103,20 +107,22 @@ export const BranchNameField = ({
             autoComplete="off"
           />
         )}
-        <Tooltip content="Shuffle branch name">
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="1"
-            className={styles.shuffleButton}
-            aria-label="Shuffle branch name"
-            data-testid={ElementIds.BRANCH_NAME_SHUFFLE_BUTTON}
-            disabled={disabled}
-            onClick={onShuffle}
-          >
-            <SparklesIcon size={12} className={isGenerating ? styles.sparkleLoading : undefined} />
-          </IconButton>
-        </Tooltip>
+        {onShuffle ? (
+          <Tooltip content="Shuffle branch name">
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="1"
+              className={styles.shuffleButton}
+              aria-label="Shuffle branch name"
+              data-testid={ElementIds.BRANCH_NAME_SHUFFLE_BUTTON}
+              disabled={disabled}
+              onClick={onShuffle}
+            >
+              <SparklesIcon size={12} className={isGenerating ? styles.sparkleLoading : undefined} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
       </div>
       {/* Error rendered only when present, so an error-free field is the same
           height as the breadcrumb chips (no always-reserved empty slot). */}

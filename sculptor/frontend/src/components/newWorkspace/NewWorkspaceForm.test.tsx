@@ -185,16 +185,16 @@ describe("NewWorkspaceForm", () => {
     expect(screen.getByTestId(ElementIds.NEW_WORKSPACE_PROMPT_TEXTAREA)).toHaveValue("Please fix it");
   });
 
-  it("ignores a seeded branch name, since no branch is created", async () => {
+  it("seeds the new-branch field and creates that branch off the source", async () => {
     renderForm({ initialBranchName: "linear/scu-1-fix" });
 
-    expect(screen.queryByTestId(ElementIds.BRANCH_NAME_INPUT)).not.toBeInTheDocument();
+    expect(screen.getByTestId(ElementIds.BRANCH_NAME_INPUT)).toHaveValue("linear/scu-1-fix");
 
     await clickCreate();
 
     await waitFor(() =>
       expect(mockCreateWorkspace).toHaveBeenCalledWith(
-        expect.objectContaining({ branchName: "", useExistingBranch: true }),
+        expect.objectContaining({ branchName: "linear/scu-1-fix", useExistingBranch: false }),
       ),
     );
   });
@@ -279,11 +279,11 @@ describe("NewWorkspaceForm", () => {
   // A workspace works ON the branch the source selector names -- it creates no
   // branch of its own, so an agent's commits land on the branch the user chose.
   describe("working on the selected branch", () => {
-    it("creates against the selected branch, with no branch of its own", async () => {
+    it("works on the selected branch while the new-branch field is blank", async () => {
       renderForm();
 
-      // Nothing is being created, so there is no branch-name field.
-      expect(screen.queryByTestId(ElementIds.BRANCH_NAME_INPUT)).not.toBeInTheDocument();
+      // Blank is the default: no branch is created unless the user names one.
+      expect(screen.getByTestId(ElementIds.BRANCH_NAME_INPUT)).toHaveValue("");
 
       await clickCreate();
 
@@ -292,6 +292,30 @@ describe("NewWorkspaceForm", () => {
           expect.objectContaining({ useExistingBranch: true, branchName: "" }),
         ),
       );
+    });
+
+    it("creates a branch off the source once one is named", async () => {
+      renderForm();
+
+      fireEvent.change(screen.getByTestId(ElementIds.BRANCH_NAME_INPUT), { target: { value: "feat/x" } });
+
+      await clickCreate();
+
+      await waitFor(() =>
+        expect(mockCreateWorkspace).toHaveBeenCalledWith(
+          expect.objectContaining({ useExistingBranch: false, branchName: "feat/x", sourceBranch: "main" }),
+        ),
+      );
+    });
+
+    it("names the workspace after the branch it creates", () => {
+      renderForm();
+
+      fireEvent.change(screen.getByTestId(ElementIds.BRANCH_NAME_INPUT), { target: { value: "feat/x" } });
+
+      // The new branch is what the workspace will be on, so it names it —
+      // rather than the source branch it forked from.
+      expect(screen.getByTestId(ElementIds.WORKSPACE_NAME_INPUT)).toHaveValue("feat/x");
     });
 
     it("names the workspace after the branch", () => {

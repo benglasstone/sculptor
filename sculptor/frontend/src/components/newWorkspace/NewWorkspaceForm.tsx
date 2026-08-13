@@ -32,6 +32,7 @@ import { BranchSelector } from "~/components/BranchSelector.tsx";
 import { KeyboardHint } from "~/components/KeyboardHint.tsx";
 import { ModelSelector } from "~/components/ModelSelector.tsx";
 import { AgentTypeSelect } from "~/components/newWorkspace/AgentTypeSelect.tsx";
+import { BranchNameField } from "~/components/newWorkspace/BranchNameField.tsx";
 import { ModeSelect } from "~/components/newWorkspace/ModeSelect.tsx";
 import type { NewWorkspaceDraft } from "~/components/newWorkspace/newWorkspaceAtoms.ts";
 import {
@@ -65,10 +66,9 @@ type NewWorkspaceFormProps = {
    */
   initialPrompt?: string;
   /**
-   * @deprecated Ignored. Workspaces no longer create a branch: they work on
-   * the branch the source selector names, so there is no branch name to seed.
-   * Kept so the extension SDK's `useOpenNewWorkspaceModal` option still
-   * type-checks.
+   * Seeds the new-branch field, so the workspace creates that branch off the
+   * source branch. Omitted, the field starts blank and the workspace works on
+   * the source branch itself.
    */
   initialBranchName?: string;
   /**
@@ -105,6 +105,7 @@ export const NewWorkspaceForm = ({
   presetProjectId,
   initialTitle,
   initialPrompt,
+  initialBranchName,
   onWorkspaceCreated,
   onCreated,
   onDismiss,
@@ -172,6 +173,14 @@ export const NewWorkspaceForm = ({
   const [isNameManuallyEdited, setIsNameManuallyEdited] = useState<boolean>(
     () => (initialTitle ?? draft?.title ?? "") !== "",
   );
+  // The branch to CREATE off the source branch. Blank -- the default -- means
+  // no new branch: the workspace works on the source branch itself. Naming one
+  // is how new work gets its own branch, and it is the only way to start from a
+  // branch that is already checked out somewhere (git allows a branch in one
+  // worktree at a time).
+  const [newBranchName, setNewBranchName] = useState<string>(
+    () => initialBranchName ?? draft?.branchNameOverride ?? "",
+  );
   const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(true);
   const [toast, setToast] = useState<ToastContent | null>(null);
 
@@ -196,16 +205,20 @@ export const NewWorkspaceForm = ({
 
   const sourceBranch = useMemo(() => userSelectedBranch ?? repoInfo?.currentBranch, [userSelectedBranch, repoInfo]);
 
-  // A workspace works ON the branch the selector names: no branch is created,
-  // so the agent's commits land on the branch the user chose. In-place is the
-  // exception -- it uses whatever the user's repo already has checked out,
-  // because switching that would mutate their working copy.
-  const isWorkingOnSelectedBranch = mode !== WorkspaceInitializationStrategy.IN_PLACE;
-  // The branch names the workspace, unless the user has typed their own name.
-  // Deriving it (rather than writing it into state) keeps the name following
-  // the branch as the user tries different branches.
+  const trimmedNewBranchName = newBranchName.trim();
+  // Blank new-branch field: the workspace works ON the source branch (reviewing
+  // it, or continuing work on it). Named: the branch is created off the source,
+  // which is how new work gets an isolated branch. In-place does neither -- it
+  // uses whatever the user's repo already has checked out, because switching
+  // that would mutate their working copy.
+  const isInPlace = mode === WorkspaceInitializationStrategy.IN_PLACE;
+  const isWorkingOnSelectedBranch = !isInPlace && trimmedNewBranchName === "";
+  // The workspace is named after the branch it will be on -- the new one if it
+  // creates one, else the source -- unless the user typed a name. Derived
+  // rather than stored so the name follows the branch as the user changes it.
+  const branchForNaming = trimmedNewBranchName || sourceBranch;
   const effectiveWorkspaceName =
-    isWorkingOnSelectedBranch && !isNameManuallyEdited ? (sourceBranch ?? workspaceName) : workspaceName;
+    !isInPlace && !isNameManuallyEdited ? (branchForNaming ?? workspaceName) : workspaceName;
 
   // Effects — stash the form's entries whenever it unmounts, whatever closed
   // it (Escape, an overlay click, the X, the Settings CTAs), so the next open
@@ -225,7 +238,7 @@ export const NewWorkspaceForm = ({
       projectId: selectedProjectId,
       title: workspaceName === initialTitle ? "" : workspaceName,
       prompt: prompt === initialPrompt ? "" : prompt,
-      branchNameOverride: null,
+      branchNameOverride: newBranchName === (initialBranchName ?? "") ? null : newBranchName,
       mode,
       sourceBranch: userSelectedBranch,
       agentTypeValue,
@@ -376,7 +389,7 @@ export const NewWorkspaceForm = ({
       prompt,
       mode,
       sourceBranch,
-      branchName: "",
+      branchName: trimmedNewBranchName,
       useExistingBranch: isWorkingOnSelectedBranch,
       agentTypeValue,
       registrations,
@@ -447,6 +460,7 @@ export const NewWorkspaceForm = ({
     createWorkspace,
     effectiveWorkspaceName,
     isWorkingOnSelectedBranch,
+    trimmedNewBranchName,
     prompt,
     sourceBranch,
     agentTypeValue,
@@ -582,6 +596,21 @@ export const NewWorkspaceForm = ({
               className={styles.titleInput}
               data-testid={ElementIds.WORKSPACE_NAME_INPUT}
               autoFocus
+            />
+
+            {/* Borderless branch field, reading as a subtitle of the title.
+                Blank means "work on the source branch"; a name creates that
+                branch off it. In-place has neither choice, so it renders
+                nothing (the component returns undefined for that mode). */}
+            <BranchNameField
+              mode={mode}
+              value={newBranchName}
+              isManuallyEdited={newBranchName !== ""}
+              isLoading={false}
+              status="unknown"
+              onUserEdit={setNewBranchName}
+              disabled={isCreating}
+              variant="plain"
             />
           </div>
 
