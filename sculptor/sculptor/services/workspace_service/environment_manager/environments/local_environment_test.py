@@ -408,23 +408,59 @@ def test_create_worktree_happy_path(tmp_path: Path, test_root_concurrency_group:
             shutil.rmtree(workspace_dir, ignore_errors=True)
 
 
-def test_create_worktree_missing_branch_name_raises(
+def test_create_worktree_without_branch_name_checks_out_the_source_branch(
     tmp_path: Path, test_root_concurrency_group: ConcurrencyGroup
 ) -> None:
+    """No requested branch name means "open this existing branch" -- the
+    review case -- rather than creating a branch off it."""
+    user_repo_path = tmp_path / "user_repo"
+    repo = make_test_repo(user_repo_path)
+    # A branch the user is NOT sitting on: git refuses to check a branch out
+    # into two worktrees at once, so reviewing requires it to be free.
+    repo.run_git(["branch", "review/target"])
+    workspace_dir = LOCAL_WORKSPACE_DIR / uuid4().hex
+    try:
+        env = LocalEnvironment.create(
+            environment_id=LocalEnvironmentID(str(workspace_dir)),
+            project_id=ProjectID(),
+            concurrency_group=test_root_concurrency_group,
+            repo_host_path=user_repo_path,
+            initialization_strategy=WorkspaceInitializationStrategy.WORKTREE,
+            source_branch="review/target",
+            requested_branch_name=None,
+        )
+
+        working_dir = env.get_working_directory()
+        head = LocalGitRepo(working_dir).run_git(["rev-parse", "--abbrev-ref", "HEAD"])
+        # The worktree sits ON the branch, so a review shows its work and any
+        # fix lands on it.
+        assert head == "review/target"
+    finally:
+        if workspace_dir.exists():
+            shutil.rmtree(workspace_dir, ignore_errors=True)
+
+
+def test_create_worktree_on_a_branch_checked_out_elsewhere_raises(
+    tmp_path: Path, test_root_concurrency_group: ConcurrencyGroup
+) -> None:
+    """Git allows a branch in only one worktree, so opening the branch the
+    user is currently on must fail loudly rather than half-create a workspace."""
     user_repo_path = tmp_path / "user_repo"
     make_test_repo(user_repo_path)
     workspace_dir = LOCAL_WORKSPACE_DIR / uuid4().hex
     try:
-        with pytest.raises(ValueError, match="requested_branch_name is required"):
-            LocalEnvironment.create(
-                environment_id=LocalEnvironmentID(str(workspace_dir)),
-                project_id=ProjectID(),
-                concurrency_group=test_root_concurrency_group,
-                repo_host_path=user_repo_path,
-                initialization_strategy=WorkspaceInitializationStrategy.WORKTREE,
-                source_branch="main",
-                requested_branch_name=None,
-            )
+        with expect_exact_logged_errors(["{}: {}"]):
+            with pytest.raises(WorktreeError, match="existing branch"):
+                LocalEnvironment.create(
+                    environment_id=LocalEnvironmentID(str(workspace_dir)),
+                    project_id=ProjectID(),
+                    concurrency_group=test_root_concurrency_group,
+                    repo_host_path=user_repo_path,
+                    initialization_strategy=WorkspaceInitializationStrategy.WORKTREE,
+                    # "main" is checked out in the user's own repo.
+                    source_branch="main",
+                    requested_branch_name=None,
+                )
     finally:
         if workspace_dir.exists():
             shutil.rmtree(workspace_dir, ignore_errors=True)

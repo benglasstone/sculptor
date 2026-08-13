@@ -158,6 +158,11 @@ class CreateWorkspaceRequestV2(RequestModel):
     description: str | None = None
     # Final branch name after user edits; required for WORKTREE, optional for CLONE, must be None for IN_PLACE.
     requested_branch_name: str | None = None
+    # WORKTREE only: open `source_branch` itself (reviewing existing work)
+    # rather than creating a new branch off it. `requested_branch_name` must be
+    # None then -- its absence is what marks the workspace as living on a branch
+    # it did not create, which deletion reads to leave that branch alone.
+    use_existing_branch: bool = False
     # Diff/merge target branch. When None, the backend resolves a sensible default
     # from the repo (origin's default branch, else local main/master).
     target_branch: str | None = None

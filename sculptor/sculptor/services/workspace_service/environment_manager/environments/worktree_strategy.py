@@ -21,6 +21,41 @@ class WorktreeError(Exception):
     """Error raised when a git worktree operation fails."""
 
 
+def checkout_worktree(
+    user_repo_path: Path,
+    destination: Path,
+    concurrency_group: ConcurrencyGroup,
+    branch: str,
+) -> None:
+    """Create a git worktree at `destination` on the EXISTING branch `branch`.
+
+    The counterpart of `create_worktree`, for opening a branch that already
+    exists (reviewing someone's work) rather than starting new work: no `-b`,
+    so git checks the branch out instead of creating it.
+
+    Git refuses to check out a branch that is already checked out in another
+    worktree -- including the user's own repository, so this fails when the
+    user is sitting on the branch they asked to open.
+
+    Raises:
+        WorktreeError: If `git worktree add` fails (e.g. unknown branch, the
+            branch is checked out elsewhere, destination already exists).
+    """
+    logger.debug(
+        "Creating worktree at {} on existing branch {} (user repo: {})",
+        destination,
+        branch,
+        user_repo_path,
+    )
+    _run_git_command(
+        ["git", "-C", str(user_repo_path), "worktree", "add", str(destination), branch],
+        cwd=None,
+        concurrency_group=concurrency_group,
+        error_message=f"Failed to create worktree at {destination} on existing branch {branch}",
+    )
+    logger.debug("Successfully created worktree at {} on existing branch {}", destination, branch)
+
+
 def create_worktree(
     user_repo_path: Path,
     destination: Path,

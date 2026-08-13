@@ -37,7 +37,7 @@ import {
 } from "~/components/CommandPalette/contextActions/menu.tsx";
 import type { WorkspaceAction } from "~/components/CommandPalette/contextActions/types.ts";
 import { InlineRenameInput } from "~/components/InlineRenameInput.tsx";
-import { useCreateWorkspaceFromSidebar } from "~/components/newWorkspace/useCreateWorkspaceFromSidebar.ts";
+import { newWorkspaceModalAtom } from "~/components/newWorkspace/newWorkspaceAtoms.ts";
 import { WorkspaceStatusDots } from "~/components/statusDot";
 
 import { adjustSidebarDragCountAtom, collapsedRepoGroupsAtom, isRepoCollapsedAtomFamily } from "./navAtoms.ts";
@@ -296,7 +296,7 @@ export const SidebarRepoGroup = ({
   const isRepoCollapsed = useAtomValue(isRepoCollapsedAtomFamily(group.projectId));
   const setCollapsedRepos = useSetAtom(collapsedRepoGroupsAtom);
   const [renamingWorkspaceId, setRenamingWorkspaceId] = useAtom(renamingWorkspaceIdAtom);
-  const { createFromSidebar, isCreating } = useCreateWorkspaceFromSidebar();
+  const setNewWorkspaceModal = useSetAtom(newWorkspaceModalAtom);
   const adjustDragCount = useSetAtom(adjustSidebarDragCountAtom);
   const reorderWorkspace = useSetAtom(reorderSidebarWorkspaceAtom);
   const renameWorkspace = useWorkspaceRename();
@@ -474,17 +474,15 @@ export const SidebarRepoGroup = ({
             </DropdownMenu.Content>
           </DropdownMenu.Root>
           <Tooltip content="New workspace in this repo" side="right">
-            {/* Direct-create in THIS repo (fresh auto branch, last-used or
-                  default settings); failures fall back to the dialog
-                  pre-selecting the repo. The nav "New Workspace" above is the
-                  open-the-dialog affordance. */}
+            {/* Opens the dialog pre-selecting THIS repo. Every workspace goes
+                  through the form: which branch it works on is a choice, and a
+                  direct-create would have to guess it. */}
             <IconButton
               variant="ghost"
               size="1"
               color="gray"
               className={styles.rowActionButton}
-              disabled={isCreating}
-              onClick={() => void createFromSidebar(group.projectId)}
+              onClick={() => setNewWorkspaceModal({ open: true, presetProjectId: group.projectId })}
               aria-label="New workspace in this repo"
               data-testid={ElementIds.SIDEBAR_REPO_ADD_WORKSPACE}
               data-project-id={group.projectId}

@@ -185,17 +185,17 @@ describe("NewWorkspaceForm", () => {
     expect(screen.getByTestId(ElementIds.NEW_WORKSPACE_PROMPT_TEXTAREA)).toHaveValue("Please fix it");
   });
 
-  it("seeds the branch-name field into override mode and creates with the seeded name", async () => {
+  it("ignores a seeded branch name, since no branch is created", async () => {
     renderForm({ initialBranchName: "linear/scu-1-fix" });
 
-    // The seed lands as a manual override, so the field shows it in place of
-    // the auto preview.
-    expect(screen.getByTestId(ElementIds.BRANCH_NAME_INPUT)).toHaveValue("linear/scu-1-fix");
+    expect(screen.queryByTestId(ElementIds.BRANCH_NAME_INPUT)).not.toBeInTheDocument();
 
     await clickCreate();
 
     await waitFor(() =>
-      expect(mockCreateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ branchName: "linear/scu-1-fix" })),
+      expect(mockCreateWorkspace).toHaveBeenCalledWith(
+        expect.objectContaining({ branchName: "", useExistingBranch: true }),
+      ),
     );
   });
 
@@ -257,25 +257,66 @@ describe("NewWorkspaceForm", () => {
     expect(promptTextarea).toHaveValue("Please fix it");
   });
 
-  it("re-seeds the branch name after a keep-open create", async () => {
-    renderForm({ initialBranchName: "linear/scu-1-fix" }, { keepOpen: true });
+  it("returns the name to the branch after a keep-open create", async () => {
+    renderForm({}, { keepOpen: true });
 
-    // The user hand-edits the branch for this one create...
-    const branchInput = screen.getByTestId(ElementIds.BRANCH_NAME_INPUT);
-    fireEvent.change(branchInput, { target: { value: "custom/branch" } });
+    // The user names this one workspace by hand...
+    const nameInput = screen.getByTestId(ElementIds.WORKSPACE_NAME_INPUT);
+    fireEvent.change(nameInput, { target: { value: "One-off name" } });
 
     await clickCreate();
 
     await waitFor(() =>
-      expect(mockCreateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ branchName: "custom/branch" })),
+      expect(mockCreateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ workspaceName: "One-off name" })),
     );
-    // ...and the still-open dialog returns to the request's seeded branch name
-    // (not the auto preview).
-    await waitFor(() => expect(branchInput).toHaveValue("linear/scu-1-fix"));
+    // ...and the still-open dialog goes back to naming itself after the branch,
+    // rather than carrying the previous workspace's name into the next one.
+    await waitFor(() => expect(nameInput).toHaveValue("main"));
   });
 
   // The one admission rule: a pi prompt is submittable only against a resolved,
   // non-empty catalog with a selection; a promptless create never waits on it.
+  // A workspace works ON the branch the source selector names -- it creates no
+  // branch of its own, so an agent's commits land on the branch the user chose.
+  describe("working on the selected branch", () => {
+    it("creates against the selected branch, with no branch of its own", async () => {
+      renderForm();
+
+      // Nothing is being created, so there is no branch-name field.
+      expect(screen.queryByTestId(ElementIds.BRANCH_NAME_INPUT)).not.toBeInTheDocument();
+
+      await clickCreate();
+
+      await waitFor(() =>
+        expect(mockCreateWorkspace).toHaveBeenCalledWith(
+          expect.objectContaining({ useExistingBranch: true, branchName: "" }),
+        ),
+      );
+    });
+
+    it("names the workspace after the branch", () => {
+      renderForm();
+
+      // The repo's current branch is the selected one until the user picks
+      // another, and it names the workspace.
+      expect(screen.getByTestId(ElementIds.WORKSPACE_NAME_INPUT)).toHaveValue("main");
+    });
+
+    it("keeps a name the user typed, rather than overwriting it with the branch", async () => {
+      renderForm();
+
+      fireEvent.change(screen.getByTestId(ElementIds.WORKSPACE_NAME_INPUT), { target: { value: "Review the fix" } });
+
+      expect(screen.getByTestId(ElementIds.WORKSPACE_NAME_INPUT)).toHaveValue("Review the fix");
+
+      await clickCreate();
+
+      await waitFor(() =>
+        expect(mockCreateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ workspaceName: "Review the fix" })),
+      );
+    });
+  });
+
   describe("pi model picker admission rule", () => {
     it("renders the pi model picker in place of the Claude controls", async () => {
       mockUsePiModels.mockReturnValue(piModelsPopulated());
@@ -468,7 +509,9 @@ describe("NewWorkspaceForm", () => {
     cleanup();
 
     renderWithProviders(<NewWorkspaceForm onCreated={vi.fn()} onDismiss={vi.fn()} />, { store });
-    expect(screen.getByTestId(ElementIds.WORKSPACE_NAME_INPUT)).toHaveValue("");
+    // "Fresh" means unstashed, not blank: an untouched form names itself after
+    // the branch it will work on.
+    expect(screen.getByTestId(ElementIds.WORKSPACE_NAME_INPUT)).toHaveValue("main");
     expect(screen.getByTestId(ElementIds.NEW_WORKSPACE_PROMPT_TEXTAREA)).toHaveValue("");
   });
 

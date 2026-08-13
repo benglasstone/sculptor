@@ -843,12 +843,26 @@ def create_workspace_v2(
                     detail="requested_branch_name is not supported for IN_PLACE workspaces",
                 )
         elif strategy == WorkspaceInitializationStrategy.WORKTREE:
-            if branch_name is None or not branch_name.strip():
+            if workspace_request.source_branch is None:
+                raise HTTPException(status_code=400, detail="source_branch is required for WORKTREE workspaces")
+            if workspace_request.use_existing_branch:
+                # Opening an existing branch: `source_branch` IS the workspace's
+                # branch, so a new branch name would be contradictory.
+                if branch_name is not None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="requested_branch_name is not supported when use_existing_branch is set",
+                    )
+                with services.git_repo_service.open_local_user_git_repo_for_read(project, log_command=False) as repo:
+                    if not repo.is_branch_ref(workspace_request.source_branch):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Branch '{workspace_request.source_branch}' does not exist",
+                        )
+            elif branch_name is None or not branch_name.strip():
                 raise HTTPException(
                     status_code=400, detail="requested_branch_name is required for WORKTREE workspaces"
                 )
-            if workspace_request.source_branch is None:
-                raise HTTPException(status_code=400, detail="source_branch is required for WORKTREE workspaces")
 
         if branch_name:
             with services.git_repo_service.open_local_user_git_repo_for_read(project, log_command=False) as repo:

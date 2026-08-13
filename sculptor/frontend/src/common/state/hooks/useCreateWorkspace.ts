@@ -30,8 +30,12 @@ type CreateWorkspaceArgs = {
   mode: WorkspaceInitializationStrategy;
   /** Source branch to base the workspace on (ignored for in-place). */
   sourceBranch: string | undefined;
-  /** The displayed branch name (override-or-preview); ignored for in-place. */
+  /** The displayed branch name (override-or-preview); ignored for in-place, and
+   *  ignored when `useExistingBranch` is set (no branch is created then). */
   branchName: string;
+  /** Open `sourceBranch` itself instead of branching off it — the review case.
+   *  WORKTREE only; the backend rejects it alongside a requested branch name. */
+  useExistingBranch?: boolean;
   /** Stored agent type for the first agent (e.g. "claude", "registered:<id>"). */
   agentTypeValue: StoredAgentType;
   /** Live registrations, used to fall back to Claude if one was deleted. */
@@ -94,8 +98,13 @@ export const useCreateWorkspace = (): UseCreateWorkspaceReturn => {
   const createWorkspace = useCallback(
     async (args: CreateWorkspaceArgs): Promise<CreateWorkspaceResult> => {
       const trimmedBranch = args.branchName.trim();
-      const requestedBranchName =
-        args.mode === WorkspaceInitializationStrategy.IN_PLACE
+      // Opening an existing branch creates no branch, so there is no name to
+      // request: the backend treats the pair as contradictory and rejects it.
+      const isOpeningExistingBranch =
+        args.useExistingBranch === true && args.mode === WorkspaceInitializationStrategy.WORKTREE;
+      const requestedBranchName = isOpeningExistingBranch
+        ? undefined
+        : args.mode === WorkspaceInitializationStrategy.IN_PLACE
           ? undefined
           : args.mode === WorkspaceInitializationStrategy.WORKTREE
             ? trimmedBranch
@@ -110,6 +119,7 @@ export const useCreateWorkspace = (): UseCreateWorkspaceReturn => {
             sourceBranch: args.mode === WorkspaceInitializationStrategy.IN_PLACE ? undefined : args.sourceBranch,
             description: args.workspaceName.trim() || "Untitled workspace",
             requestedBranchName,
+            useExistingBranch: isOpeningExistingBranch,
           },
         });
 

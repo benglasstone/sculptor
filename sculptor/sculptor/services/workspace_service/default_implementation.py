@@ -70,6 +70,7 @@ from sculptor.services.workspace_service.environment_manager.environments.local_
 from sculptor.services.workspace_service.environment_manager.environments.local_terminal_manager import (
     stop_terminals_for_environment,
 )
+from sculptor.services.workspace_service.environment_manager.environments.worktree_strategy import DeletionPolicy
 from sculptor.services.workspace_service.environment_manager.environments.worktree_strategy import remove_worktree
 from sculptor.services.workspace_service.setup_command_runner import DefaultSetupStateProvider
 from sculptor.services.workspace_service.setup_command_runner import SetupCommandRunner
@@ -529,6 +530,7 @@ class DefaultWorkspaceService(WorkspaceService):
             environment_manager = self.environment_manager
             initialization_strategy = workspace.initialization_strategy
             requested_branch_name = workspace.requested_branch_name
+            source_branch = workspace.source_branch
             project = transaction.get_project(workspace.project_id)
             concurrency_group = self.concurrency_group
 
@@ -553,12 +555,24 @@ class DefaultWorkspaceService(WorkspaceService):
                 # repo before rmtree so the gitfile entry is cleaned up and the
                 # tri-state branch deletion policy is applied.
                 if initialization_strategy == WorkspaceInitializationStrategy.WORKTREE:
-                    if project is not None and requested_branch_name is not None:
+                    # A workspace with no requested branch name opened an
+                    # EXISTING branch (see the worktree setup): that branch is
+                    # the user's, predating the workspace, so it is never
+                    # deleted no matter what the config says. The worktree
+                    # itself is still removed, or the user's repo would keep a
+                    # dangling worktree entry.
+                    is_existing_branch = requested_branch_name is None
+                    branch_name = source_branch if is_existing_branch else requested_branch_name
+                    if project is not None and branch_name is not None:
                         user_config = get_user_config_instance()
-                        deletion_policy = (
-                            user_config.workspace_branch_deletion_policy
-                            if user_config is not None
-                            else "delete_if_safe"
+                        deletion_policy: DeletionPolicy = (
+                            "never"
+                            if is_existing_branch
+                            else (
+                                user_config.workspace_branch_deletion_policy
+                                if user_config is not None
+                                else "delete_if_safe"
+                            )
                         )
                         try:
                             # The worktree checkout lives at `<environment_id>/code/`,
@@ -567,7 +581,7 @@ class DefaultWorkspaceService(WorkspaceService):
                             remove_worktree(
                                 user_repo_path=project.get_local_user_path(),
                                 destination=Path(environment_id) / "code",
-                                branch_name=requested_branch_name,
+                                branch_name=branch_name,
                                 deletion_policy=deletion_policy,
                                 concurrency_group=concurrency_group,
                             )

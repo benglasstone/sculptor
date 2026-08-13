@@ -41,6 +41,7 @@ from sculptor.services.workspace_service.environment_manager.environments.local_
 from sculptor.services.workspace_service.environment_manager.environments.local_terminal_manager import (
     stop_terminals_for_environment,
 )
+from sculptor.services.workspace_service.environment_manager.environments.worktree_strategy import checkout_worktree
 from sculptor.services.workspace_service.environment_manager.environments.worktree_strategy import create_worktree
 from sculptor.utils.build import get_workspaces_folder
 
@@ -225,17 +226,27 @@ class LocalEnvironment(Environment):
                 dest_env_file = environment.get_working_directory() / ".sculptor" / ".env"
                 atomic_copy_env_file(source_env_file, dest_env_file)
         elif initialization_strategy == WorkspaceInitializationStrategy.WORKTREE:
-            if requested_branch_name is None:
-                raise ValueError("requested_branch_name is required for WORKTREE initialization")
             if source_branch is None:
-                raise ValueError("source_branch (base ref) is required for WORKTREE initialization")
-            create_worktree(
-                user_repo_path=repo_host_path,
-                destination=environment.get_working_directory(),
-                concurrency_group=concurrency_group,
-                base_ref=source_branch,
-                new_branch=requested_branch_name,
-            )
+                raise ValueError("source_branch is required for WORKTREE initialization")
+            if requested_branch_name is None:
+                # No new branch was requested, so `source_branch` IS the
+                # workspace's branch: the user opened an existing branch to
+                # review rather than starting new work off it. Deletion reads
+                # the same signal to keep its hands off the branch.
+                checkout_worktree(
+                    user_repo_path=repo_host_path,
+                    destination=environment.get_working_directory(),
+                    concurrency_group=concurrency_group,
+                    branch=source_branch,
+                )
+            else:
+                create_worktree(
+                    user_repo_path=repo_host_path,
+                    destination=environment.get_working_directory(),
+                    concurrency_group=concurrency_group,
+                    base_ref=source_branch,
+                    new_branch=requested_branch_name,
+                )
             # Gitignored files don't follow the worktree either; mirror the CLONE behavior.
             source_env_file = repo_host_path / ".sculptor" / ".env"
             if source_env_file.exists():

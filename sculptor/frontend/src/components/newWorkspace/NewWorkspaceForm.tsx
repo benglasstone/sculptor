@@ -32,8 +32,6 @@ import { BranchSelector } from "~/components/BranchSelector.tsx";
 import { KeyboardHint } from "~/components/KeyboardHint.tsx";
 import { ModelSelector } from "~/components/ModelSelector.tsx";
 import { AgentTypeSelect } from "~/components/newWorkspace/AgentTypeSelect.tsx";
-import { BranchNameField } from "~/components/newWorkspace/BranchNameField.tsx";
-import { useBranchNamePreview } from "~/components/newWorkspace/hooks/useBranchNamePreview.ts";
 import { ModeSelect } from "~/components/newWorkspace/ModeSelect.tsx";
 import type { NewWorkspaceDraft } from "~/components/newWorkspace/newWorkspaceAtoms.ts";
 import {
@@ -67,9 +65,10 @@ type NewWorkspaceFormProps = {
    */
   initialPrompt?: string;
   /**
-   * Name to seed the branch-name field with on mount, putting it in
-   * manually-edited mode — the user can still shuffle back to the auto
-   * preview. The form's existing exists/invalid validation applies unchanged.
+   * @deprecated Ignored. Workspaces no longer create a branch: they work on
+   * the branch the source selector names, so there is no branch name to seed.
+   * Kept so the extension SDK's `useOpenNewWorkspaceModal` option still
+   * type-checks.
    */
   initialBranchName?: string;
   /**
@@ -106,7 +105,6 @@ export const NewWorkspaceForm = ({
   presetProjectId,
   initialTitle,
   initialPrompt,
-  initialBranchName,
   onWorkspaceCreated,
   onCreated,
   onDismiss,
@@ -167,13 +165,13 @@ export const NewWorkspaceForm = ({
   const [userSelectedBranch, setUserSelectedBranch] = useState<string | undefined>(() =>
     draft !== undefined ? draft.sourceBranch : lastSettings?.sourceBranch,
   );
-  // `null` means "use the auto-filled preview"; any string means the user has
-  // taken over. Both the value and the manual flag collapse into one piece of
-  // state so they can never disagree.
-  const [branchNameOverride, setBranchNameOverride] = useState<string | null>(
-    () => initialBranchName ?? draft?.branchNameOverride ?? null,
+  // The workspace is named after its branch until the user types a name of
+  // their own -- tracked separately so their text is never overwritten by a
+  // later branch change. A restored draft counts as the user's text too: it is
+  // what they had typed when the dialog closed.
+  const [isNameManuallyEdited, setIsNameManuallyEdited] = useState<boolean>(
+    () => (initialTitle ?? draft?.title ?? "") !== "",
   );
-  const [shuffleNonce, setShuffleNonce] = useState<number>(0);
   const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(true);
   const [toast, setToast] = useState<ToastContent | null>(null);
 
@@ -196,20 +194,18 @@ export const NewWorkspaceForm = ({
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
-  const isBranchNameManuallyEdited = branchNameOverride !== null;
-  const {
-    displayedValue: effectiveBranchName,
-    isLoading: isBranchNamePreviewLoading,
-    status: branchNameStatus,
-  } = useBranchNamePreview({
-    projectId: selectedProjectId,
-    workspaceName,
-    mode,
-    override: branchNameOverride,
-    shuffleNonce,
-  });
-
   const sourceBranch = useMemo(() => userSelectedBranch ?? repoInfo?.currentBranch, [userSelectedBranch, repoInfo]);
+
+  // A workspace works ON the branch the selector names: no branch is created,
+  // so the agent's commits land on the branch the user chose. In-place is the
+  // exception -- it uses whatever the user's repo already has checked out,
+  // because switching that would mutate their working copy.
+  const isWorkingOnSelectedBranch = mode !== WorkspaceInitializationStrategy.IN_PLACE;
+  // The branch names the workspace, unless the user has typed their own name.
+  // Deriving it (rather than writing it into state) keeps the name following
+  // the branch as the user tries different branches.
+  const effectiveWorkspaceName =
+    isWorkingOnSelectedBranch && !isNameManuallyEdited ? (sourceBranch ?? workspaceName) : workspaceName;
 
   // Effects — stash the form's entries whenever it unmounts, whatever closed
   // it (Escape, an overlay click, the X, the Settings CTAs), so the next open
@@ -229,7 +225,7 @@ export const NewWorkspaceForm = ({
       projectId: selectedProjectId,
       title: workspaceName === initialTitle ? "" : workspaceName,
       prompt: prompt === initialPrompt ? "" : prompt,
-      branchNameOverride: branchNameOverride === (initialBranchName ?? null) ? null : branchNameOverride,
+      branchNameOverride: null,
       mode,
       sourceBranch: userSelectedBranch,
       agentTypeValue,
@@ -298,7 +294,6 @@ export const NewWorkspaceForm = ({
     // A freshly added repo replaces the selection, so branch choices made
     // against the previous repo no longer apply.
     setSelectedProjectId(addedProjects[addedProjects.length - 1].objectId);
-    setBranchNameOverride(null);
     setUserSelectedBranch(undefined);
   }, [projects]);
 
@@ -325,21 +320,12 @@ export const NewWorkspaceForm = ({
   }, [openSettings, onDismiss]);
   const handleProjectChange = useCallback((nextProjectId: string): void => {
     setSelectedProjectId(nextProjectId);
-    // Switching repos invalidates branch choices made against the old repo.
-    setBranchNameOverride(null);
+    // Switching repos invalidates the branch chosen against the old repo.
     setUserSelectedBranch(undefined);
   }, []);
 
   const handleModeChange = useCallback((nextMode: WorkspaceInitializationStrategy): void => {
     setMode(nextMode);
-    setBranchNameOverride(null);
-  }, []);
-
-  const handleShuffle = useCallback((): void => {
-    // Return to auto-fill mode and force a fresh preview fetch (re-rolls the
-    // random slug when the title is blank).
-    setBranchNameOverride(null);
-    setShuffleNonce((prev) => prev + 1);
   }, []);
 
   const isPromptEmpty = prompt.trim() === "";
@@ -371,8 +357,6 @@ export const NewWorkspaceForm = ({
   const isSubmitDisabled =
     selectedProjectId === null ||
     isCreating ||
-    (mode === WorkspaceInitializationStrategy.WORKTREE &&
-      (effectiveBranchName.trim() === "" || isBranchNamePreviewLoading)) ||
     // Worktree and clone workspaces both base off a source branch; a create
     // without a resolved one 400s on the backend. `sourceBranch` is undefined
     // until `repoInfo` arrives (the selector shows a Skeleton meanwhile). In-place
@@ -381,8 +365,6 @@ export const NewWorkspaceForm = ({
     (repoInfo !== null && repoInfo.recentBranches?.length === 0) ||
     // A name the validator has flagged — illegal ref or existing branch — hard
     // blocks Create; the backend re-checks at create time as the backstop.
-    branchNameStatus === "exists" ||
-    branchNameStatus === "invalid" ||
     isPiPromptBlocked;
 
   const handleSubmit = useCallback(async (): Promise<void> => {
@@ -390,11 +372,12 @@ export const NewWorkspaceForm = ({
 
     const result = await createWorkspace({
       projectId: selectedProjectId,
-      workspaceName,
+      workspaceName: effectiveWorkspaceName,
       prompt,
       mode,
       sourceBranch,
-      branchName: effectiveBranchName,
+      branchName: "",
+      useExistingBranch: isWorkingOnSelectedBranch,
       agentTypeValue,
       registrations,
       defaultModel: agentModel,
@@ -446,10 +429,9 @@ export const NewWorkspaceForm = ({
       // mode is the exception: it is a per-task choice, so it resets to off
       // rather than silently carrying into the next workspace.
       setWorkspaceName(initialTitle ?? "");
+      setIsNameManuallyEdited((initialTitle ?? "") !== "");
       setPrompt(initialPrompt ?? "");
       setIsAgentPlanMode(false);
-      setBranchNameOverride(initialBranchName ?? null);
-      setShuffleNonce((prev) => prev + 1);
       nameInputRef.current?.focus();
     } else {
       // The dialog is about to close on a completed form; keep the unmount
@@ -461,10 +443,10 @@ export const NewWorkspaceForm = ({
   }, [
     isSubmitDisabled,
     selectedProjectId,
-    effectiveBranchName,
     mode,
     createWorkspace,
-    workspaceName,
+    effectiveWorkspaceName,
+    isWorkingOnSelectedBranch,
     prompt,
     sourceBranch,
     agentTypeValue,
@@ -477,7 +459,6 @@ export const NewWorkspaceForm = ({
     isKeepOpen,
     initialTitle,
     initialPrompt,
-    initialBranchName,
     onWorkspaceCreated,
     onCreated,
     setDraft,
@@ -592,29 +573,16 @@ export const NewWorkspaceForm = ({
             <input
               ref={nameInputRef}
               type="text"
-              value={workspaceName}
-              onChange={(e): void => setWorkspaceName(e.target.value)}
+              value={effectiveWorkspaceName}
+              onChange={(e): void => {
+                setIsNameManuallyEdited(true);
+                setWorkspaceName(e.target.value);
+              }}
               placeholder="Untitled workspace"
               className={styles.titleInput}
               data-testid={ElementIds.WORKSPACE_NAME_INPUT}
               autoFocus
             />
-
-            {/* Borderless, iconless branch — reads as an editable subtitle of the
-                title (worktree/clone only; in-place uses the current branch). */}
-            {mode !== WorkspaceInitializationStrategy.IN_PLACE ? (
-              <BranchNameField
-                mode={mode}
-                value={effectiveBranchName}
-                isManuallyEdited={isBranchNameManuallyEdited}
-                isLoading={isBranchNamePreviewLoading}
-                status={branchNameStatus}
-                onUserEdit={(value): void => setBranchNameOverride(value)}
-                onShuffle={handleShuffle}
-                disabled={isCreating}
-                variant="plain"
-              />
-            ) : null}
           </div>
 
           <textarea
