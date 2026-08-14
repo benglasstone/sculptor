@@ -31,8 +31,12 @@ from sculptor.services.workspace_service.environment_manager.environments.spawne
 # for bulk output (e.g., `cat large_file`), matching ttyd's approach.
 PTY_READ_BUFFER_SIZE = 32768
 
-# Maximum output buffer size (for replay on reconnect) - ~1MB
-MAX_OUTPUT_BUFFER_SIZE = 1024 * 1024
+# Maximum output buffer replayed to the client on reconnect. A TUI agent (Claude
+# CLI) pegs this cap with constant redraws, and xterm re-parses the whole replay
+# synchronously on the main thread — so a large buffer directly slows how long a
+# terminal takes to appear after a workspace switch. 256KB keeps ample scrollback
+# for the visible screen and recent history while cutting that reparse ~4x.
+MAX_OUTPUT_BUFFER_SIZE = 256 * 1024
 
 # Length of the hex-truncated sha256 used as a URL-safe terminal ID.
 _TERMINAL_ID_HASH_LENGTH = 16

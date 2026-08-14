@@ -558,6 +558,11 @@ export const useTerminal = ({
     initXterm();
 
     return (): void => {
+      // TODO(warm-terminals): disposing here (and closing the WS in the effect
+      // below) is why revisiting a workspace pays a full reconnect + buffer
+      // replay + xterm reparse. A keep-alive LRU pool would retain the xterm+WS
+      // for the last N terminals so revisits are instant. See
+      // docs/development/warm-terminals.md.
       isCleanedUp = true;
       setIsXtermReady(false);
       xtermRef.current?.dispose();
