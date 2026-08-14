@@ -290,6 +290,13 @@ def _await_gh_device_code(process: RunningProcess) -> tuple[str | None, str | No
         time.sleep(0.2)
 
 
+# How long a computed dependency-status snapshot is served before it is
+# recomputed. Dependency status changes only on explicit user action (install /
+# auth), and those paths refresh the cache immediately, so this can be generous;
+# it exists to collapse the frequent /health liveness poll onto one recompute.
+_DEPENDENCY_STATUS_CACHE_TTL_SECONDS = 30.0
+
+
 class DependencyManagementService(Service):
     # Serializes the download+verify+stage operation. Held by the background
     # download thread for the entire duration of _download_verify_stage.
@@ -329,10 +336,27 @@ class DependencyManagementService(Service):
     # Per-tool reference to the in-flight install thread so stop() can wait for
     # each one's finally block to complete before the concurrency group exits.
     _install_thread: dict[Dependency, ObservableThread] = PrivateAttr(default_factory=dict)
+    # Short-TTL cache for the computed dependency status. Each recompute spawns
+    # several `<tool> --version` (and `gh auth status`, a network call)
+    # subprocesses, so serving the frequent /health poll straight from
+    # `_get_status()` saturated the request threadpool and starved every other
+    # request. The cache is refreshed on install/auth events (via
+    # `_notify_observers`) so user-visible changes still land immediately.
+    # Guarded by _status_cache_lock, which also coalesces concurrent recomputes.
+    _status_cache: DependenciesStatus | None = PrivateAttr(default=None)
+    _status_cache_monotonic: float = PrivateAttr(default=0.0)
+    _status_cache_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
+    # Single-flight guard for the background status refresh: held while a probe
+    # is running so only one runs at a time (see _start_background_status_refresh).
+    _status_refresh_guard: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
     def start(self) -> None:
         self._cleanup_stale_state()
         self._auto_install_if_needed()
+        # Warm the status cache off-thread so the first /health polls serve a
+        # ready snapshot instead of hitting the inline cold-compute path. Never
+        # block startup on the probe subprocesses (one is a network call).
+        self._start_background_status_refresh()
 
     def stop(self) -> None:
         """Signal any in-flight install to wrap up before the concurrency group exits.
@@ -466,12 +490,18 @@ class DependencyManagementService(Service):
     def _notify_observers(self, status: DependenciesStatus | None = None) -> None:
         """Push status to all registered observer queues.
 
-        If *status* is ``None``, calls ``_get_status()`` to compute it.
+        If *status* is ``None``, calls ``_get_status()`` to compute it — this is
+        the install/auth-event path, so the freshly computed snapshot also
+        refreshes the TTL cache, letting a user-visible change land immediately
+        rather than waiting out the cache window.
         Delta detection is handled by the stream layer (``stream_everything``),
         not here — this method pushes unconditionally.
         """
         if status is None:
             status = self._get_status()
+            with self._status_cache_lock:
+                self._status_cache = status
+                self._status_cache_monotonic = time.monotonic()
         for queue in self._observer_queues:
             queue.put(status)
 
@@ -923,9 +953,81 @@ class DependencyManagementService(Service):
             is_authenticated=is_authenticated,
         )
 
-    def get_status(self) -> DependenciesStatus:
-        """Get the status of all dependencies and push to observers if changed."""
+    def _get_cached_status(self) -> DependenciesStatus:
+        """Return the last dependency-status snapshot WITHOUT probing on the caller's thread.
+
+        Probing spawns several `<tool> --version` (and a network `gh auth
+        status`) subprocesses that can hang for seconds. The /health poll hits
+        this on every request, so it must NEVER run those probes inline — doing
+        so once starved the request threadpool and stalled unrelated calls
+        (mark-read, diff) for seconds. Instead: serve the last snapshot
+        immediately, even when stale, and refresh it on a background thread.
+        Only the very first call after startup (empty cache) computes inline,
+        and that one is coalesced so concurrent cold callers share a single
+        probe rather than stampeding.
+        """
+        with self._status_cache_lock:
+            cached = self._status_cache
+            is_fresh = (
+                cached is not None
+                and (time.monotonic() - self._status_cache_monotonic) < _DEPENDENCY_STATUS_CACHE_TTL_SECONDS
+            )
+        if is_fresh:
+            assert cached is not None
+            return cached
+        if cached is not None:
+            # Stale but present: hand back the stale snapshot now and refresh
+            # off the request path, so a hung probe can neither block this
+            # caller nor pile concurrent callers onto one lock.
+            self._start_background_status_refresh()
+            return cached
+        # Cold start: no snapshot yet. Compute once under the refresh guard so
+        # concurrent first-callers coalesce onto a single probe instead of each
+        # spawning the full subprocess set.
+        with self._status_refresh_guard:
+            with self._status_cache_lock:
+                if self._status_cache is not None:
+                    return self._status_cache
+            return self._refresh_status_cache()
+
+    def _refresh_status_cache(self) -> DependenciesStatus:
+        """Probe the tools and store the fresh snapshot. Slow (subprocesses); the
+        callers that run it inline are the cold-start path and the background
+        refresh thread — never a warm request."""
         status = self._get_status()
+        with self._status_cache_lock:
+            self._status_cache = status
+            self._status_cache_monotonic = time.monotonic()
+        return status
+
+    def _start_background_status_refresh(self) -> None:
+        """Kick off a single-flight background refresh of the status cache.
+
+        The guard is acquired non-blocking, so if a refresh is already running
+        this is a no-op — a slow/hung probe can't accumulate a backlog of
+        threads. The daemon thread releases the guard when done."""
+        if not self._status_refresh_guard.acquire(blocking=False):
+            return
+        # Snapshot age at trigger time is not needed; the thread just recomputes.
+
+        def _run() -> None:
+            try:
+                self._refresh_status_cache()
+            except Exception:
+                logger.opt(exception=True).warning("Background dependency-status refresh failed")
+            finally:
+                self._status_refresh_guard.release()
+
+        threading.Thread(target=_run, name="dep-status-refresh", daemon=True).start()
+
+    def get_status(self) -> DependenciesStatus:
+        """Get the status of all dependencies and push to observers.
+
+        Served from a short-TTL cache (see `_get_cached_status`) so a frequent
+        caller — the /health poll — does not respawn the probe subprocesses on
+        every request.
+        """
+        status = self._get_cached_status()
         self._notify_observers(status)
         return status
 
