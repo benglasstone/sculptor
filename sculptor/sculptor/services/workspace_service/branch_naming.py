@@ -28,6 +28,19 @@ def generate_random_slug() -> str:
     return generate_slug(_RANDOM_SLUG_WORD_COUNT)
 
 
+def next_indexed_branch_name(base: str, existing_branches: set[str]) -> str:
+    """Return `<base>-<n>` for the lowest positive `n` not already in
+    `existing_branches`.
+
+    The convention for a new worktree branch: every workspace opened off a
+    branch gets its own well-named branch, e.g. `main-1`, `main-2`. Pure; the
+    caller supplies the existing branch names (from git)."""
+    n = 1
+    while f"{base}-{n}" in existing_branches:
+        n += 1
+    return f"{base}-{n}"
+
+
 def resolve_pattern(pattern: str, user_slug: str, name_slug: str) -> str:
     """Substitute `<user>` and `<slug>` placeholders in `pattern`.
 

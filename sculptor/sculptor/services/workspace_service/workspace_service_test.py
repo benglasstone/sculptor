@@ -332,18 +332,15 @@ def test_create_workspace_captures_source_git_hash(
     assert all(c in "0123456789abcdef" for c in source_git_hash)
 
 
-def test_worktree_on_checked_out_branch_falls_back_to_new_branch(
+def test_worktree_auto_names_branch_off_source(
     test_service_collection: CompleteServiceCollection,
     test_root_concurrency_group: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
-    """A WORKTREE workspace opened on a branch that is already checked out must
-    not fail at `git worktree add`.
-
-    `main` is checked out in the repo itself, so a bare worktree checkout of it
-    would fail (git allows a branch in only one worktree). With no requested
-    branch ("work on the selected branch"), create_workspace detects the conflict
-    and branches off it instead, auto-filling requested_branch_name.
+    """With no requested branch, a WORKTREE workspace auto-names its branch
+    `<source_branch>-<n>` off the selected branch (never occupies it directly —
+    git allows a branch in only one worktree, and `main` is already checked out
+    in the repo itself). The first one off `main` is `main-1`.
     """
     repo_path = _create_isolated_git_repo(tmp_path / "repo", test_root_concurrency_group)
 
@@ -363,25 +360,20 @@ def test_worktree_on_checked_out_branch_falls_back_to_new_branch(
             transaction=transaction,
         )
 
-    # A workspace branch was generated off main rather than trying (and failing)
-    # to occupy main directly...
-    assert workspace.requested_branch_name is not None
-    assert workspace.requested_branch_name != "main"
-    # ...and main is preserved as the source/parent (the diff base).
+    assert workspace.requested_branch_name == "main-1"
+    # main is preserved as the source/parent (the diff base).
     assert workspace.source_branch == "main"
 
 
-def test_worktree_on_free_branch_keeps_working_on_it(
+def test_worktree_branch_numbering_skips_existing(
     test_service_collection: CompleteServiceCollection,
     test_root_concurrency_group: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
-    """A branch NOT checked out anywhere is still opened directly (no fallback):
-    requested_branch_name stays None so the worktree checks the branch out."""
+    """The `<source_branch>-<n>` counter picks the lowest free n: when `main-1`
+    already exists, the next worktree off `main` is `main-2`."""
     repo_path = _create_isolated_git_repo(tmp_path / "repo", test_root_concurrency_group)
-    # Create a second branch and switch off it, so `feature` exists but is not
-    # checked out in any worktree.
-    subprocess.run(["git", "-C", str(repo_path), "branch", "feature"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo_path), "branch", "main-1"], check=True, capture_output=True)
 
     with test_service_collection.data_model_service.open_transaction(request_id=RequestID()) as transaction:
         project = test_service_collection.project_service.initialize_project(
@@ -393,15 +385,40 @@ def test_worktree_on_free_branch_keeps_working_on_it(
         workspace = test_service_collection.workspace_service.create_workspace(
             project=project,
             initialization_strategy=WorkspaceInitializationStrategy.WORKTREE,
-            source_branch="feature",
+            source_branch="main",
             requested_branch_name=None,
             description="Test workspace",
             transaction=transaction,
         )
 
-    # No conflict: work on `feature` directly, no generated branch.
-    assert workspace.requested_branch_name is None
-    assert workspace.source_branch == "feature"
+    assert workspace.requested_branch_name == "main-2"
+
+
+def test_worktree_honors_explicit_branch_name(
+    test_service_collection: CompleteServiceCollection,
+    test_root_concurrency_group: ConcurrencyGroup,
+    tmp_path: Path,
+) -> None:
+    """An explicitly requested branch name is used as-is (no auto-numbering)."""
+    repo_path = _create_isolated_git_repo(tmp_path / "repo", test_root_concurrency_group)
+
+    with test_service_collection.data_model_service.open_transaction(request_id=RequestID()) as transaction:
+        project = test_service_collection.project_service.initialize_project(
+            project_path=repo_path,
+            organization_reference=ANONYMOUS_ORGANIZATION_REFERENCE,
+            transaction=transaction,
+        )
+        test_service_collection.project_service.activate_project(project)
+        workspace = test_service_collection.workspace_service.create_workspace(
+            project=project,
+            initialization_strategy=WorkspaceInitializationStrategy.WORKTREE,
+            source_branch="main",
+            requested_branch_name="my-feature",
+            description="Test workspace",
+            transaction=transaction,
+        )
+
+    assert workspace.requested_branch_name == "my-feature"
 
 
 def test_get_workspace_diff_generates_on_demand_when_artifact_missing(

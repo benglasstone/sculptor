@@ -55,10 +55,10 @@ export const BranchNameField = ({
     return undefined;
   }
 
-  // Empty is a real choice: the workspace then works on the source branch
-  // itself rather than branching off it, so the placeholder says what leaving
-  // it blank does rather than calling the field optional.
-  const placeholder = "New branch (blank = work on the selected branch)";
+  // Empty is a real choice: the workspace then gets an auto-named branch off the
+  // selected branch (`<branch>-<n>`, e.g. main-1), so the placeholder says what
+  // leaving it blank does rather than calling the field optional.
+  const placeholder = "New branch (blank = auto-name off the selected branch)";
   // The as-you-type sanitizer keeps most illegal characters out of `value`, so
   // "invalid" only fires on the residue it deliberately lets through (trailing
   // '.' or '/', a '.lock' suffix) — see sanitizeBranchName.ts.

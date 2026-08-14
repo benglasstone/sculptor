@@ -1,8 +1,27 @@
 import pytest
 
 from sculptor.services.workspace_service.branch_naming import generate_random_slug
+from sculptor.services.workspace_service.branch_naming import next_indexed_branch_name
 from sculptor.services.workspace_service.branch_naming import resolve_pattern
 from sculptor.services.workspace_service.branch_naming import slugify_workspace_name
+
+
+@pytest.mark.parametrize(
+    "base, existing, expected",
+    [
+        ("main", set(), "main-1"),
+        ("main", {"main-1"}, "main-2"),
+        ("main", {"main-1", "main-2"}, "main-3"),
+        # A gap is filled: lowest free n wins.
+        ("main", {"main-2"}, "main-1"),
+        # Unrelated branches are ignored.
+        ("main", {"feature", "mainline-1"}, "main-1"),
+        # Slashes in the source branch are preserved.
+        ("feature/foo", {"feature/foo-1"}, "feature/foo-2"),
+    ],
+)
+def test_next_indexed_branch_name(base: str, existing: set[str], expected: str) -> None:
+    assert next_indexed_branch_name(base, existing) == expected
 
 
 @pytest.mark.parametrize(
