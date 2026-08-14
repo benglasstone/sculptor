@@ -58,6 +58,9 @@ from sculptor.services.workspace_service.api import WorkspaceFilesUnavailableErr
 from sculptor.services.workspace_service.api import WorkspaceNotFoundError
 from sculptor.services.workspace_service.api import WorkspaceService
 from sculptor.services.workspace_service.api import resolve_workspace_setup_command
+from sculptor.services.workspace_service.branch_naming import generate_random_slug
+from sculptor.services.workspace_service.branch_naming import resolve_pattern
+from sculptor.services.workspace_service.branch_naming import slugify_workspace_name
 from sculptor.services.workspace_service.branch_poller import WorkspaceBranchPoller
 from sculptor.services.workspace_service.environment_manager.api import EnvironmentManager
 from sculptor.services.workspace_service.environment_manager.default_implementation import DefaultEnvironmentManager
@@ -310,6 +313,62 @@ class DefaultWorkspaceService(WorkspaceService):
             logger.warning("Failed to get git hash: {}", e)
             return None
 
+    def _is_branch_checked_out(self, project_path: Path, branch: str) -> bool:
+        """True if `branch` is currently checked out in any worktree of the repo.
+
+        Git permits a branch in only one worktree, so `git worktree add <branch>`
+        fails when the branch is checked out elsewhere (commonly the user's own
+        primary repo sitting on `main`). On any git failure, assume not-checked-out
+        so the normal path runs and surfaces the real error."""
+        try:
+            returncode, stdout, _stderr = run_git_command_local(
+                self.concurrency_group,
+                ["git", "worktree", "list", "--porcelain"],
+                cwd=project_path,
+                check_output=False,
+                timeout=_GIT_COMMAND_TIMEOUT,
+                is_retry_safe=True,
+            )
+        except GitCommandFailure:
+            return False
+        if returncode != 0:
+            return False
+        target = f"branch refs/heads/{branch}"
+        return any(line.strip() == target for line in stdout.splitlines())
+
+    def _generate_fallback_branch_name(self, project: Project, project_path: Path) -> str:
+        """Generate a workspace branch name for the fallback when the requested
+        source branch is already checked out (see create_workspace).
+
+        Mirrors the Add-Workspace form's auto-name so the result matches the
+        user's convention: the project or user-global naming pattern resolved
+        against a `<user>` slug (from git user.name) and a random `<slug>`.
+
+        TODO: dedupe with web.app.preview_branch_name, which resolves the same
+        pattern — extract a shared WorkspaceService.generate_branch_name."""
+        if project.naming_pattern is not None and project.naming_pattern.strip():
+            pattern = project.naming_pattern
+        else:
+            user_config = get_user_config_instance()
+            pattern = (
+                user_config.default_workspace_branch_naming_pattern if user_config is not None else "<user>/<slug>"
+            )
+        user_slug = ""
+        try:
+            returncode, stdout, _stderr = run_git_command_local(
+                self.concurrency_group,
+                ["git", "config", "user.name"],
+                cwd=project_path,
+                check_output=False,
+                timeout=_GIT_COMMAND_TIMEOUT,
+                is_retry_safe=True,
+            )
+            if returncode == 0 and stdout.strip():
+                user_slug = slugify_workspace_name(stdout.strip().split()[0])
+        except GitCommandFailure:
+            pass
+        return resolve_pattern(pattern, user_slug=user_slug, name_slug=generate_random_slug())
+
     def _resolve_default_target_branch(
         self,
         project_path: Path,
@@ -438,6 +497,27 @@ class DefaultWorkspaceService(WorkspaceService):
         # Diff-generation methods handle None explicitly (see _get_diff_base_ref).
         project_path = project.get_local_user_path()
         source_git_hash = self._get_current_git_hash(project_path)
+
+        # "Work on the selected branch" (requested_branch_name is None) can't
+        # create a worktree when that branch is already checked out in another
+        # worktree — git allows a branch in only one worktree, and the user's
+        # primary repo sitting on `main` is the common case, which otherwise
+        # fails every such workspace at `git worktree add`. Fall back to
+        # branching off it: generate a workspace branch name now so the persisted
+        # record, the `-b` worktree creation, the diff base, and cleanup all stay
+        # consistent (a named branch is created off source_branch instead).
+        if (
+            initialization_strategy == WorkspaceInitializationStrategy.WORKTREE
+            and requested_branch_name is None
+            and source_branch is not None
+            and self._is_branch_checked_out(project_path, source_branch)
+        ):
+            requested_branch_name = self._generate_fallback_branch_name(project, project_path)
+            logger.info(
+                "Source branch '{}' is checked out in another worktree; creating workspace on new branch '{}' off it",
+                source_branch,
+                requested_branch_name,
+            )
 
         # Use the caller-provided target branch if given, otherwise resolve a
         # sensible default from the user's repo.
