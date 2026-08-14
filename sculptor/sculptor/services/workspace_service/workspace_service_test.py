@@ -1073,12 +1073,20 @@ def test_create_workspace_clone_falls_back_to_origin_main(
     assert workspace.target_branch == "origin/main"
 
 
-def test_target_branch_diff_uses_auto_resolved_branch(
+def test_all_changes_diff_uses_worktree_parent_not_target_branch(
     test_service_collection: CompleteServiceCollection,
     test_root_concurrency_group: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
-    """Target branch diff should use the auto-resolved target_branch."""
+    """The "All changes" diff is based on the worktree's parent (where the
+    workspace was created), NOT the auto-resolved target branch.
+
+    The repo is on a `feature` branch that already diverged from `origin/main`
+    by adding `new_file.txt`. That divergence predates the workspace, so it must
+    NOT appear in the diff — only what the workspace itself changes after
+    creation should. (The old behaviour diffed against origin/main and wrongly
+    surfaced the entire pre-existing divergence.)
+    """
     repo_path = _create_repo_with_origin_and_feature_branch(tmp_path, test_root_concurrency_group)
 
     with test_service_collection.data_model_service.open_transaction(request_id=RequestID()) as transaction:
@@ -1098,18 +1106,29 @@ def test_target_branch_diff_uses_auto_resolved_branch(
         )
         workspace_id = workspace.object_id
 
-    # target_branch was auto-resolved
+    # target_branch is still auto-resolved and stored — it just no longer drives
+    # the diff base.
     assert workspace.target_branch == "origin/main"
 
-    # Request diff with target branch included
+    # Make a change AFTER creation: this is what the workspace actually did.
+    (repo_path / "after_creation.txt").write_text("added inside the workspace")
+    subprocess.run(["git", "-C", str(repo_path), "add", "after_creation.txt"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_path), "commit", "-m", "Work done in the workspace"],
+        check=True,
+        capture_output=True,
+    )
+
     with test_service_collection.data_model_service.open_transaction(request_id=RequestID()) as transaction:
         diff = test_service_collection.workspace_service.get_workspace_diff(
             workspace_id, transaction, force_refresh=True, include_target_branch_diff=True
         )
 
     assert diff is not None
-    assert diff.target_branch_diff != ""
-    assert "new_file.txt" in diff.target_branch_diff
+    # The workspace's own change appears...
+    assert "after_creation.txt" in diff.target_branch_diff
+    # ...but the pre-existing feature/main divergence does NOT.
+    assert "new_file.txt" not in diff.target_branch_diff
 
 
 def test_diff_skipped_when_no_target_branch(

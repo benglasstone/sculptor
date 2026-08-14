@@ -272,9 +272,16 @@ export const ChangesTreeView = ({
   }
 
   if (changesCount === 0) {
+    // The backend drops an oversized "All changes" diff (a mis-based diff can
+    // reach hundreds of MB); say so rather than the misleading "No changes".
+    const isTargetDiffTooLarge = scope === "vs-target-branch" && diff?.targetBranchDiffTruncated === true;
     return (
-      <Flex align="center" justify="center" flexGrow="1">
-        {isDiffReady ? (
+      <Flex align="center" justify="center" flexGrow="1" px="3">
+        {isTargetDiffTooLarge ? (
+          <Text size="2" color="gray" align="center">
+            Diff too large to display
+          </Text>
+        ) : isDiffReady ? (
           <Text size="2" color="gray">
             No changes
           </Text>

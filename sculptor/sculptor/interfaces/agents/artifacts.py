@@ -46,13 +46,20 @@ class DiffArtifact(SerializableModel):
 
     object_type: str = "DiffArtifact"
     uncommitted_diff: str = ""
-    target_branch_diff: str = ""  # Diff from merge-base(target, HEAD) to HEAD
-    # Commit SHA of merge-base(target, HEAD) — the ref the target_branch_diff's
+    # The "All changes" diff: from merge-base(base_ref, HEAD) to the working tree,
+    # where base_ref is the worktree's parent (the branch/commit it was created
+    # from) — so this shows what the workspace changed since branching, not the
+    # divergence from a distant mainline.
+    target_branch_diff: str = ""
+    # Commit SHA of merge-base(base_ref, HEAD) — the ref the target_branch_diff's
     # old-side line numbers reference. The frontend fetches the "old" file
     # content for hunk expansion at this commit so the line arrays stay in sync
-    # with the diff (the target-branch tip may have diverged since the
-    # merge-base). Empty when there is no target branch or no merge-base.
+    # with the diff. Empty when there is no base ref or no merge-base.
     target_branch_merge_base: str = ""
+    # True when target_branch_diff was dropped for exceeding the size cap: the
+    # frontend shows a "diff too large" notice rather than an empty ("no changes")
+    # view. See _MAX_DIFF_BYTES in the workspace service.
+    target_branch_diff_truncated: bool = False
     file_errors: dict[str, str] = Field(
         default_factory=dict,
         description="Per-file diff generation errors. Maps relative file path to error message.",

@@ -91,6 +91,12 @@ _GIT_COMMAND_TIMEOUT = 30.0
 _DEFAULT_DIFF_CONTEXT_LINES = 3
 _MAX_DIFF_CONTEXT_LINES = 50
 
+# Upper bound (bytes) on a single diff string. A diff this large is never useful
+# to display, and shipping/parsing it stalls the whole app (a mis-based diff can
+# reach hundreds of MB). Past this we drop the diff and flag it truncated so the
+# frontend shows a "too large" notice instead of choking on the payload.
+_MAX_DIFF_BYTES = 5_000_000
+
 # Shell snippet that produces a unified diff for every untracked file.
 # Used by both the uncommitted diff and the target-branch diff so that new
 # (un-added) files appear in both views.
@@ -950,15 +956,19 @@ class DefaultWorkspaceService(WorkspaceService):
         base_ref: str,
         working_dir: Path,
         context_lines: int = _DEFAULT_DIFF_CONTEXT_LINES,
-        target_branch: str | None = None,
+        include_target_branch_diff: bool = False,
     ) -> DiffArtifact:
         """Create a diff artifact using local git commands.
 
         Args:
-            base_ref: Git ref to diff against (branch name, commit hash, or "HEAD~0").
+            base_ref: The worktree's parent ref — the branch/commit this workspace
+                was created from (source_branch → source_git_hash → "HEAD~0").
+                The "All changes" diff is computed against the merge-base of HEAD
+                and this ref, so it shows only what this workspace changed since it
+                branched, NOT how far the branch has drifted from a distant mainline.
             working_dir: Working directory for git commands.
             context_lines: Number of unchanged context lines around each diff hunk.
-            target_branch: If set, compute target-branch diff using merge-base.
+            include_target_branch_diff: Whether to compute the "All changes" diff.
         """
         if not isinstance(context_lines, int) or context_lines < 0:
             raise ValueError(f"context_lines must be a non-negative integer, got {context_lines!r}")
@@ -972,20 +982,26 @@ class DefaultWorkspaceService(WorkspaceService):
             "-c",
             f"git --no-pager diff -M {context_flag} HEAD; {untracked}",
         ]
-        uncommitted_diff = self._run_diff_command(uncommitted_diff_command, working_dir, "uncommitted")
+        uncommitted_diff, _ = self._cap_diff(
+            self._run_diff_command(uncommitted_diff_command, working_dir, "uncommitted"), "uncommitted"
+        )
 
-        # Compute target-branch diff if requested.  Resolve the merge-base once
-        # and reuse it both to compute the diff and to expose it on the artifact,
-        # so the frontend can fetch old-side file content at the exact ref the
-        # diff's old-side line numbers reference (rather than the target-branch
-        # tip, which may have diverged since the merge-base).
+        # Compute the "All changes" diff against the worktree's PARENT (base_ref),
+        # not a configured mainline: a workspace branched from feature/foo should
+        # show its own changes, not the entire divergence between feature/foo and
+        # origin/master. Resolve the merge-base once and expose it on the artifact
+        # so the frontend fetches old-side file content at the exact ref the diff's
+        # old-side line numbers reference.
         target_branch_diff = ""
         target_branch_merge_base = ""
-        if target_branch is not None:
-            merge_base = self._get_merge_base(working_dir, target_branch)
+        target_branch_diff_truncated = False
+        if include_target_branch_diff:
+            merge_base = self._get_merge_base(working_dir, base_ref)
             if merge_base is not None:
                 target_branch_merge_base = merge_base
-                target_branch_diff = self._compute_target_branch_diff(working_dir, merge_base, context_flag)
+                target_branch_diff, target_branch_diff_truncated = self._cap_diff(
+                    self._compute_target_branch_diff(working_dir, merge_base, context_flag), "target-branch"
+                )
 
         # Detect per-file errors (e.g., files inside nested git repositories)
         file_errors = self._detect_file_errors(working_dir)
@@ -994,8 +1010,26 @@ class DefaultWorkspaceService(WorkspaceService):
             uncommitted_diff=uncommitted_diff,
             target_branch_diff=target_branch_diff,
             target_branch_merge_base=target_branch_merge_base,
+            target_branch_diff_truncated=target_branch_diff_truncated,
             file_errors=file_errors,
         )
+
+    @staticmethod
+    def _cap_diff(diff: str, diff_kind: str) -> tuple[str, bool]:
+        """Drop a diff that exceeds `_MAX_DIFF_BYTES`, returning (diff, was_truncated).
+
+        A diff this large is never useful and stalls the frontend on transfer and
+        parse, so we drop it entirely rather than ship a partial (and therefore
+        malformed) diff. The boolean lets the frontend show a "too large" notice."""
+        if len(diff) > _MAX_DIFF_BYTES:
+            logger.warning(
+                "Dropping oversized {} diff: {} bytes exceeds cap of {} bytes",
+                diff_kind,
+                len(diff),
+                _MAX_DIFF_BYTES,
+            )
+            return "", True
+        return diff, False
 
     def _get_merge_base(self, working_dir: Path, target_branch: str) -> str | None:
         """Return the merge-base of HEAD and *target_branch*, or ``None`` on failure."""
@@ -1111,11 +1145,12 @@ class DefaultWorkspaceService(WorkspaceService):
 
                 base_ref = self._get_diff_base_ref(workspace)
                 working_dir = self._get_workspace_working_dir(workspace, transaction)
-                target_branch = workspace.target_branch if include_target_branch_diff else None
 
-            # Generate the diff artifact (outside transaction — may be slow)
+            # Generate the diff artifact (outside transaction — may be slow). The
+            # "All changes" diff is based on base_ref (the worktree's parent), not
+            # workspace.target_branch — see _create_diff_artifact_local.
             diff_artifact = self._create_diff_artifact_local(
-                base_ref, working_dir, effective_context_lines, target_branch=target_branch
+                base_ref, working_dir, effective_context_lines, include_target_branch_diff=include_target_branch_diff
             )
 
             # Store the artifact to disk
