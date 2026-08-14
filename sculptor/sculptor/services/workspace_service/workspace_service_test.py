@@ -421,6 +421,37 @@ def test_worktree_honors_explicit_branch_name(
     assert workspace.requested_branch_name == "my-feature"
 
 
+def test_worktree_off_remote_branch_strips_origin_prefix(
+    test_service_collection: CompleteServiceCollection,
+    test_root_concurrency_group: ConcurrencyGroup,
+    tmp_path: Path,
+) -> None:
+    """A remote-tracking source (origin/foo, e.g. fetched via the branch picker's
+    fetch-from-origin) yields a local branch named after the branch itself —
+    foo-1, not origin/foo-1."""
+    repo_path = _create_isolated_git_repo(tmp_path / "repo", test_root_concurrency_group)
+
+    with test_service_collection.data_model_service.open_transaction(request_id=RequestID()) as transaction:
+        project = test_service_collection.project_service.initialize_project(
+            project_path=repo_path,
+            organization_reference=ANONYMOUS_ORGANIZATION_REFERENCE,
+            transaction=transaction,
+        )
+        test_service_collection.project_service.activate_project(project)
+        workspace = test_service_collection.workspace_service.create_workspace(
+            project=project,
+            initialization_strategy=WorkspaceInitializationStrategy.WORKTREE,
+            source_branch="origin/foo",
+            requested_branch_name=None,
+            description="Test workspace",
+            transaction=transaction,
+        )
+
+    assert workspace.requested_branch_name == "foo-1"
+    # The remote ref is preserved as the source/parent (the diff base).
+    assert workspace.source_branch == "origin/foo"
+
+
 def test_get_workspace_diff_generates_on_demand_when_artifact_missing(
     test_service_collection: CompleteServiceCollection,
     test_project: Project,

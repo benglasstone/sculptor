@@ -27,6 +27,11 @@ class ReadOnlyGitRepo(MutableModel, ABC):
         """
 
     @abstractmethod
+    def get_remote_branches(self) -> list[str]:
+        """Get a list of remote-tracking branches (e.g. 'origin/main'), excluding
+        HEAD pointer entries."""
+
+    @abstractmethod
     def get_current_commit_hash(self) -> str:
         """
         The output of `git rev-parse HEAD`.

@@ -334,8 +334,15 @@ class DefaultWorkspaceService(WorkspaceService):
 
         Every new workspace gets its own well-named branch off the selected
         branch; we never occupy the selected branch directly, since git allows a
-        branch in only one worktree (the user's primary repo already holds it)."""
-        return next_indexed_branch_name(source_branch, self._list_local_branches(project_path))
+        branch in only one worktree (the user's primary repo already holds it).
+
+        A remote-tracking source (e.g. `origin/foo`, just fetched) is named after
+        the branch itself, not the remote-qualified ref: `origin/foo` -> `foo-1`."""
+        base = source_branch
+        remote_prefix = "origin/"
+        if base.startswith(remote_prefix):
+            base = base[len(remote_prefix) :]
+        return next_indexed_branch_name(base, self._list_local_branches(project_path))
 
     def _resolve_default_target_branch(
         self,

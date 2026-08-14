@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 
 import type { RepoInfo } from "~/api";
-import { ElementIds } from "~/api";
+import { ElementIds, fetchProjectOrigin } from "~/api";
 import { BranchSelectorCore, type BranchWithBadges } from "~/components/BranchSelectorCore.tsx";
 
 import styles from "./BranchSelector.module.scss";
@@ -38,22 +38,35 @@ const BranchSelectorComponent = ({
   const areBranchesLoaded = (repoInfo?.recentBranches?.length ?? 0) > 0;
 
   const branches: Array<BranchWithBadges> = useMemo(() => {
-    const branchOptions = repoInfo?.recentBranches || [];
-
-    return branchOptions.map((branch) => {
-      const isCurrentBranch = branch === repoInfo?.currentBranch;
-      const badges: Array<string | { text: string; tooltip?: string }> = [];
-
-      if (isCurrentBranch) {
-        badges.push("current");
-      }
-
-      return {
-        branch,
-        badges,
-      };
-    });
+    const localBranches = repoInfo?.recentBranches || [];
+    const localSet = new Set(localBranches);
+    const local: Array<BranchWithBadges> = localBranches.map((branch) => ({
+      branch,
+      badges: branch === repoInfo?.currentBranch ? ["current"] : [],
+    }));
+    // Remote-tracking branches (e.g. `origin/foo` fetched via "fetch from
+    // origin") are selectable too, badged so they read as remote; a new worktree
+    // branch is created off the selected one. Skip remotes shadowed by a local.
+    const remote: Array<BranchWithBadges> = (repoInfo?.remoteBranches || [])
+      .filter((branch) => !localSet.has(branch))
+      .map((branch) => ({ branch, badges: ["remote"] }));
+    return [...local, ...remote];
   }, [repoInfo]);
+
+  // "Fetch from origin" pulls newly-pushed branches (e.g. ones with open PRs)
+  // into the remote-tracking set, then refreshes so they appear in the list.
+  const [isFetchingFromOrigin, setIsFetchingFromOrigin] = useState(false);
+  const handleFetchFromOrigin = useCallback((): void => {
+    const projectId = repoInfo?.projectId;
+    if (projectId == null || isFetchingFromOrigin) return;
+    setIsFetchingFromOrigin(true);
+    void fetchProjectOrigin({ path: { project_id: projectId } })
+      .then(() => fetchRepoInfo())
+      .catch((error: unknown) => {
+        console.error("Failed to fetch from origin:", error);
+      })
+      .finally(() => setIsFetchingFromOrigin(false));
+  }, [repoInfo?.projectId, fetchRepoInfo, isFetchingFromOrigin]);
 
   const displayBranchName = selectedBranchName;
 
@@ -78,6 +91,11 @@ const BranchSelectorComponent = ({
         triggerFetch();
       }}
       branches={branches}
+      specialBranchFilter={(b) =>
+        b.badges.some((badge) => (typeof badge === "string" ? badge : badge.text) === "current")
+      }
+      onFetchFromOrigin={handleFetchFromOrigin}
+      isFetchingFromOrigin={isFetchingFromOrigin}
       isLoadingBranches={!areBranchesLoaded && isFetchingBranches}
       disabled={disabled}
       triggerContent={

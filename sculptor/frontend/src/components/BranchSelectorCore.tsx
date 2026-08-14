@@ -1,7 +1,7 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
-import { Badge, Box, Flex, ScrollArea, Select, Text, Tooltip } from "@radix-ui/themes";
+import { Badge, Box, Flex, IconButton, ScrollArea, Select, Spinner, Text, Tooltip } from "@radix-ui/themes";
 import { ThickCheckIcon } from "@radix-ui/themes/src/components/icons.tsx";
-import { SearchIcon } from "lucide-react";
+import { DownloadIcon, SearchIcon } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -80,6 +80,11 @@ type BranchSelectorCoreProps = {
 
   isLoadingBranches?: boolean;
 
+  /** When provided, a "fetch from origin" button appears in the dropdown header
+   *  (e.g. to pull branches with open PRs). Omit to hide it. */
+  onFetchFromOrigin?: () => void;
+  isFetchingFromOrigin?: boolean;
+
   height?: number;
   onOpenChange?: (open: boolean) => void;
 };
@@ -96,6 +101,8 @@ export const BranchSelectorCore = ({
   contentTestId,
   className,
   isLoadingBranches = false,
+  onFetchFromOrigin,
+  isFetchingFromOrigin = false,
   height = 270,
   onOpenChange,
 }: BranchSelectorCoreProps): ReactElement => {
@@ -216,26 +223,49 @@ export const BranchSelectorCore = ({
             }}
           >
             <Box px="2" py="1" className={styles.searchContainer}>
-              <Box className={styles.searchInputWrapper}>
-                <SearchIcon className={styles.searchIcon} />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  placeholder="Search branches..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
+              <Flex align="center" gap="2">
+                <Box className={styles.searchInputWrapper} style={{ flex: 1 }}>
+                  <SearchIcon className={styles.searchIcon} />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    placeholder="Search branches..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
 
-                    if (e.key === "Enter" && allFilteredBranches.length === 1) {
-                      onBranchSelected(allFilteredBranches[0].branch);
-                      setSearchQuery("");
-                      setIsOpen(false);
-                    }
-                  }}
-                  className={styles.searchInputField}
-                />
-              </Box>
+                      if (e.key === "Enter" && allFilteredBranches.length === 1) {
+                        onBranchSelected(allFilteredBranches[0].branch);
+                        setSearchQuery("");
+                        setIsOpen(false);
+                      }
+                    }}
+                    className={styles.searchInputField}
+                  />
+                </Box>
+                {onFetchFromOrigin && (
+                  <Tooltip content="Fetch branches from origin">
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="1"
+                      aria-label="Fetch branches from origin"
+                      disabled={isFetchingFromOrigin}
+                      // Keep the click from reaching the Select (which would try to
+                      // select an item or close the dropdown).
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onFetchFromOrigin();
+                      }}
+                    >
+                      {isFetchingFromOrigin ? <Spinner size="1" /> : <DownloadIcon size={14} />}
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Flex>
             </Box>
             {specialBranchesFiltered.length > 0 && (
               <Box flexShrink="0">

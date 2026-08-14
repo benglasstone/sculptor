@@ -222,6 +222,7 @@ from sculptor.web.data_types import ExtensionCommandRequest
 from sculptor.web.data_types import ExtensionCommandResponse
 from sculptor.web.data_types import ExtensionCommandResult
 from sculptor.web.data_types import ExtensionCommandUiAction
+from sculptor.web.data_types import FetchOriginResponse
 from sculptor.web.data_types import HealthCheckResponse
 from sculptor.web.data_types import InitializeGitRepoRequest
 from sculptor.web.data_types import InstallExtensionRequest
@@ -854,7 +855,12 @@ def create_workspace_v2(
                         detail="requested_branch_name is not supported when use_existing_branch is set",
                     )
                 with services.git_repo_service.open_local_user_git_repo_for_read(project, log_command=False) as repo:
-                    if not repo.is_branch_ref(workspace_request.source_branch):
+                    # Accept a remote-tracking branch too (e.g. `origin/foo` just
+                    # fetched via the branch picker's "fetch from origin"), not only
+                    # a local branch — the worktree is created off it either way.
+                    is_local = repo.is_branch_ref(workspace_request.source_branch)
+                    is_remote = workspace_request.source_branch in repo.get_remote_branches()
+                    if not (is_local or is_remote):
                         raise HTTPException(
                             status_code=400,
                             detail=f"Branch '{workspace_request.source_branch}' does not exist",
@@ -3539,6 +3545,9 @@ def _list_directory_contents(repo_root: Path, directory: str) -> list[str]:
     return dirs + files
 
 
+# `git fetch origin` hits the network, so it gets a longer bound than the local
+# read-only git info calls.
+_FETCH_ORIGIN_TIMEOUT_SECONDS = 30
 _REPO_ACCESS_MAX_RETRIES = 3
 _REPO_ACCESS_RETRY_DELAY_SECONDS = 0.5
 _GIT_INFO_TIMEOUT_SECONDS = 10
@@ -3695,6 +3704,38 @@ def validate_new_branch_name(
             return NewBranchNameValidationResponse(is_valid=is_valid, already_exists=already_exists)
     except GitRepoNotFoundError:
         return NewBranchNameValidationResponse(is_valid=True, already_exists=False)
+
+
+@router.post("/api/v1/projects/{project_id}/fetch-origin")
+def fetch_project_origin(
+    project_id: ProjectID,
+    request: Request,
+    user_session: UserSession = Depends(get_user_session),
+) -> FetchOriginResponse:
+    """Run `git fetch origin` in the project's repo so newly-pushed branches
+    (e.g. ones with open PRs) become selectable as a workspace source. The caller
+    refreshes repo info afterward to pick up the fetched remote branches."""
+    services = get_services_from_request_or_websocket(request)
+    with user_session.open_transaction(services) as transaction:
+        project = transaction.get_project(project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if not project.is_path_accessible:
+            raise HTTPException(status_code=404, detail="Project path not accessible")
+
+    result = run_blocking(
+        ["git", "fetch", "origin"],
+        cwd=project.get_local_user_path(),
+        timeout=_FETCH_ORIGIN_TIMEOUT_SECONDS,
+        is_checked=False,
+    )
+    if result.is_timed_out:
+        return FetchOriginResponse(success=False, error="git fetch origin timed out")
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        logger.info("git fetch origin failed for project {}: {}", project_id, stderr)
+        return FetchOriginResponse(success=False, error=stderr or "git fetch origin failed")
+    return FetchOriginResponse(success=True)
 
 
 @router.get("/api/v1/projects/{project_id}/repo_info")

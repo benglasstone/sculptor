@@ -268,6 +268,15 @@ class PreviewBranchNameResponse(SerializableModel):
     branch_name: str
 
 
+class FetchOriginResponse(SerializableModel):
+    """Result of a `git fetch origin` triggered from the Add Workspace branch
+    picker, so the user can pull branches (e.g. ones with open PRs) and pick one
+    as the source. `error` is a short human-readable message when success is False."""
+
+    success: bool
+    error: str | None = None
+
+
 class NewBranchNameValidationResponse(SerializableModel):
     """Validation result for a prospective new workspace branch name.
 

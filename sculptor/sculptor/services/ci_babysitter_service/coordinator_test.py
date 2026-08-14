@@ -243,6 +243,9 @@ class _StubGitRepo(ReadOnlyGitRepo):
     def get_all_branches(self) -> list[str]:
         return _stub()
 
+    def get_remote_branches(self) -> list[str]:
+        return _stub()
+
     def get_current_git_branch(self) -> str:
         return _stub()
 
