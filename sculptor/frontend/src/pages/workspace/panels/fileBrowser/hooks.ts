@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { workspaceOpenInOs } from "~/api";
 import { useForceRefreshWorkspaceDiff, useWorkspaceDiff } from "~/common/state/hooks/useWorkspaceDiff.ts";
@@ -67,6 +67,45 @@ export const usePerFileDiffMap = (workspaceId: string, scope: DiffScope = "uncom
   return useParsedDiffMaps(workspaceId, scope).perFileDiffMap;
 };
 
+/** The two derived products of a file list + diff: the tree and its per-folder change counts. */
+type DerivedFileTree = { tree: Array<TreeNode>; folderChangeCounts: Map<string, number> };
+
+// Stable empty products so an uncached first paint doesn't allocate (and doesn't
+// churn referential identity across renders).
+const EMPTY_FOLDER_COUNTS: Map<string, number> = new Map();
+const EMPTY_DERIVED_TREE: DerivedFileTree = { tree: [], folderChangeCounts: EMPTY_FOLDER_COUNTS };
+
+// The file tree is rebuilt OFF the urgent render path (see useFileTree) and cached
+// per workspace+scope, so revisiting an already-open workspace shows its tree
+// instantly instead of rebuilding on the switch's critical path. The cache is
+// bounded; the oldest entry is evicted once it is full (Map preserves insertion
+// order). Sized to comfortably cover the workspaces a session cycles through.
+const MAX_CACHED_FILE_TREES = 24;
+const fileTreeCache = new Map<string, DerivedFileTree>();
+
+const fileTreeCacheKey = (workspaceId: string, scope: DiffScope): string => `${workspaceId}::${scope}`;
+
+/** Builds the tree and folder counts from a file list + diff. Pure; the caller
+ *  decides when to run it (useFileTree runs it after paint, never during the
+ *  blocking switch render). */
+const buildDerivedFileTree = (
+  files: ReadonlyArray<{ path: string; type: "file" | "directory" }>,
+  statusMap: Map<string, FileStatus>,
+  fileErrors: Record<string, string>,
+): DerivedFileTree => {
+  const tree = buildFileTree({ files, fileStatusMap: statusMap, fileErrors });
+
+  // Add deleted files from the diff that don't appear in the file list.
+  const existingPaths = new Set(files.map((f) => f.path));
+  for (const [filePath, status] of statusMap) {
+    if (status === "D" && !existingPaths.has(filePath)) {
+      addDeletedFileToTree({ tree, filePath, fileErrors });
+    }
+  }
+
+  return { tree, folderChangeCounts: computeFolderChangeCounts(tree) };
+};
+
 type UseFileTreeResult = {
   tree: Array<TreeNode>;
   folderChangeCounts: Map<string, number>;
@@ -88,25 +127,51 @@ export const useFileTree = (workspaceId: string, scope: DiffScope = "uncommitted
   const fileErrors = useMemo(() => diff?.fileErrors ?? {}, [diff?.fileErrors]);
   const isFetching = isFilesFetching || isDiffFetching;
 
-  const tree = useMemo(() => {
+  // The tree is derived OFF the urgent render path so a workspace switch paints
+  // the chat/terminal first and the tree fills in a frame later — on a large repo
+  // the build is tens of ms of synchronous work that otherwise blocked the switch's
+  // first paint. Two pieces make that work without flashing the wrong workspace:
+  //
+  //  - `derived` holds what to render NOW: the cached tree for THIS workspace+scope
+  //    (instant on revisit) or the empty tree on a first, uncached visit.
+  //  - a passive effect (runs AFTER paint) builds/refreshes the tree and caches it.
+  const cacheKey = fileTreeCacheKey(workspaceId, scope);
+  const [derived, setDerived] = useState<DerivedFileTree>(() => fileTreeCache.get(cacheKey) ?? EMPTY_DERIVED_TREE);
+
+  // On a workspace/scope switch the key changes; swap synchronously to that key's
+  // cached tree (or empty) so we never show the previous workspace's tree for a
+  // frame. This is React's "adjust state when a prop changes during render" pattern:
+  // the setState reschedules this render before it commits, so nothing stale paints.
+  const [shownKey, setShownKey] = useState(cacheKey);
+  if (shownKey !== cacheKey) {
+    setShownKey(cacheKey);
+    setDerived(fileTreeCache.get(cacheKey) ?? EMPTY_DERIVED_TREE);
+  }
+
+  // Build/refresh after paint. Re-runs whenever the inputs change (a file or diff
+  // update), always off the blocking path. The build is cheap enough to run inline
+  // in the effect; caching makes repeat switches free.
+  useEffect(() => {
     if (!files) {
-      return [];
+      return;
     }
-
-    const builtTree = buildFileTree({ files, fileStatusMap: statusMap, fileErrors });
-
-    // Add deleted files from the diff that don't appear in the file list
-    const existingPaths = new Set(files.map((f) => f.path));
-    for (const [filePath, status] of statusMap) {
-      if (status === "D" && !existingPaths.has(filePath)) {
-        addDeletedFileToTree({ tree: builtTree, filePath, fileErrors });
+    const result = buildDerivedFileTree(files, statusMap, fileErrors);
+    if (!fileTreeCache.has(cacheKey) && fileTreeCache.size >= MAX_CACHED_FILE_TREES) {
+      const oldest = fileTreeCache.keys().next().value;
+      if (oldest !== undefined) {
+        fileTreeCache.delete(oldest);
       }
     }
+    fileTreeCache.set(cacheKey, result);
+    // Deliberate: the whole point is to build AFTER paint and then re-render with
+    // the result. The follow-up render this rule warns about is the intended
+    // behavior (paint the chat/terminal first, fill the tree in a frame later);
+    // reflecting post-paint computed data inherently needs a state update.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDerived(result);
+  }, [cacheKey, files, statusMap, fileErrors]);
 
-    return builtTree;
-  }, [files, statusMap, fileErrors]);
-
-  const folderChangeCounts = useMemo(() => computeFolderChangeCounts(tree), [tree]);
+  const { tree, folderChangeCounts } = derived;
 
   // Combined refetch: refresh both the file list and the diff so the
   // Uncommitted tab reflects external changes (e.g. files created via terminal).
